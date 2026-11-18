@@ -13,6 +13,7 @@ import { filasDeErrores, TablaEditable } from "@/components/calculadoras/comun/T
 import { GraficoLineas } from "@/components/calculadoras/graficos/GraficoLineas";
 import { PanelSensibilidad } from "@/components/calculadoras/embalse/PanelSensibilidad";
 import { PanelTemez } from "@/components/calculadoras/embalse/PanelTemez";
+import { DiagramaEmbalse } from "@/components/calculadoras/croquis/DiagramaEmbalse";
 import { aguaDisponiblePonderada, calcularTemez, PARAMETROS_TEMEZ_URUGUAY, type PasoTemez } from "@/lib/calc/hidraulica/temez";
 import {
   agregarDiarioAMensual,
@@ -311,6 +312,7 @@ export default function BalanceEmbalsePage() {
   const [modoLibNombre, setModoLibNombre] = useCampo("modoLiberacion", "mín(aporte; Qamb)");
 
   const [pasoDetalleTexto, setPasoDetalle] = useCampo("pasoDetalle", "1");
+  const [vistaCroquis, setVistaCroquis] = useCampo("vistaCroquis", "Totales del período");
 
   // Aporte (serie o Témez) y demanda (serie o constante)
   const [aporteFuente, setAporteFuente] = useCampo("aporteFuente", "Serie cargada");
@@ -1090,6 +1092,75 @@ export default function BalanceEmbalsePage() {
                 },
               ]}
             />
+
+            {curva && (
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-end gap-3 print:hidden">
+                  <CampoSeleccion
+                    id="vistaCroquis"
+                    etiqueta="Croquis"
+                    valor={vistaCroquis}
+                    opciones={["Totales del período", "Un paso"]}
+                    onChange={setVistaCroquis}
+                  />
+                  {vistaCroquis === "Un paso" && n > 1 && (
+                    <label className="flex min-w-48 flex-1 flex-col gap-1 text-xs text-muted-foreground">
+                      {detalle ? `Paso ${pasoDetalle} · ${fechaCorta(detalle.fecha, paso)}` : "Paso"}
+                      <input
+                        type="range"
+                        min={1}
+                        max={n}
+                        value={pasoDetalle}
+                        onChange={(e) => setPasoDetalle(e.target.value)}
+                        className="w-full accent-[var(--mat-cota)]"
+                      />
+                    </label>
+                  )}
+                </div>
+                {vistaCroquis === "Un paso" && detalle ? (
+                  <DiagramaEmbalse
+                    titulo={`Paso ${pasoDetalle} (${fechaCorta(detalle.fecha, paso)}): nivel al final del paso`}
+                    curva={curva}
+                    cotaVertidoM={cotaVmax}
+                    cotaTomaM={cotaVmin}
+                    cotaAguaM={detalle.cotaFinalM}
+                    rangoM={[detalle.cotaInicialM, detalle.cotaFinalM].sort((a, b) => a - b) as [number, number]}
+                    etiquetaRango="en el paso"
+                    flujos={{
+                      aporte: detalle.aporteHm3,
+                      precipitacion: detalle.precipitacionHm3,
+                      evaporacion: detalle.evaporacionHm3,
+                      infiltracion: detalle.infiltracionHm3,
+                      suministro: detalle.suministroHm3,
+                      qamb: detalle.qambLiberadoHm3,
+                      vertido: detalle.vertidoHm3,
+                      deficit: detalle.deficitHm3,
+                    }}
+                    fv={(x) => V(x, 1)}
+                  />
+                ) : (
+                  <DiagramaEmbalse
+                    titulo="Totales del período: nivel al final de la serie y rango simulado"
+                    curva={curva}
+                    cotaVertidoM={cotaVmax}
+                    cotaTomaM={cotaVmin}
+                    cotaAguaM={resultado.pasos[n - 1].cotaFinalM}
+                    rangoM={[resultado.cotaMinimaM, resultado.cotaMaximaM]}
+                    flujos={{
+                      aporte: resultado.totales.aporte,
+                      precipitacion: resultado.totales.precipitacion,
+                      evaporacion: resultado.totales.evaporacion,
+                      infiltracion: resultado.totales.infiltracion,
+                      suministro: resultado.totales.suministro,
+                      qamb: resultado.totales.qambLiberado,
+                      vertido: resultado.totales.vertido,
+                      deficit: resultado.deficitTotalHm3,
+                    }}
+                    fv={(x) => V(x)}
+                  />
+                )}
+              </div>
+            )}
 
             {temez && (
               <PanelTemez
