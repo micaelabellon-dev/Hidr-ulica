@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Calculator, House, LayoutGrid, ShieldCheck } from "lucide-react";
+import { BookOpen, Calculator, House, LayoutGrid, ShieldCheck } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { NavCalculadoras } from "@/components/calculadoras/comun/NavCalculadoras";
 
@@ -16,6 +16,7 @@ interface Destino {
 const DESTINOS: Destino[] = [
   { nombre: "Inicio", ruta: "/", Icono: House },
   { nombre: "Calculadoras", ruta: "/calculadoras", Icono: Calculator, prefijo: true },
+  { nombre: "Recursos", ruta: "/recursos", Icono: BookOpen },
 ];
 
 export function BarraLateral() {

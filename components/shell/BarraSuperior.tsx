@@ -29,6 +29,21 @@ export function BarraSuperior() {
           </Link>
           <TemaToggle />
         </div>
+        <nav className="flex w-full gap-1.5 overflow-x-auto md:hidden" aria-label="Secciones">
+          {[
+            ["Inicio", "/"],
+            ["Calculadoras", "/calculadoras"],
+            ["Recursos", "/recursos"],
+          ].map(([nombre, ruta]) => (
+            <Link
+              key={ruta}
+              href={ruta}
+              className="shrink-0 rounded-full border border-border px-3 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+            >
+              {nombre}
+            </Link>
+          ))}
+        </nav>
       </div>
     </header>
   );
