@@ -79,11 +79,14 @@ export default function AlcancePage() {
           </p>
           <p>
             <strong className="text-foreground">Balance hídrico de embalse.</strong> Continuidad
-            pura en cada paso, sin tránsito de crecidas: los caudales son medios del paso y la
-            lluvia y la evaporación se aplican sobre el área del espejo correspondiente al volumen
-            medio del paso, interpolada linealmente en la curva cota-área-volumen. Lo que supera
-            el volumen máximo vierte en el mismo paso, sin laminación; lo que falta para no bajar
-            del volumen mínimo se informa como déficit, sin repartirlo entre los distintos usos.
+            pura en cada paso, sin tránsito de crecidas, con reglas de operación: primero se libera el
+            caudal ambiental, después se suministra la demanda sin bajar del volumen muerto y lo que
+            supera el volumen de vertido vierte en el mismo paso, sin laminación. La lluvia y la
+            evaporación (de tanque, por un coeficiente) se aplican sobre el área del espejo en el
+            volumen del inicio o en el volumen medio del paso, interpolada linealmente en la curva
+            cota-área-volumen. El caudal ambiental por percentil usa los factores de la
+            regionalización que se carguen; los que trae por defecto son de la subregión Sur /
+            Sureste y hay que reemplazarlos para otra subregión.
           </p>
         </div>
       </section>

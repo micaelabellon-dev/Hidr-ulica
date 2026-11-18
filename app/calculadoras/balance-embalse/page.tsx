@@ -6,6 +6,7 @@ import { useCampo, useTabla } from "@/lib/hooks/useCampo";
 import { BarraAcciones } from "@/components/calculadoras/comun/BarraAcciones";
 import { BarraArchivos, botonArchivo, ListaAvisos, ListaErrores } from "@/components/calculadoras/comun/BarraArchivos";
 import { CampoNumerico } from "@/components/calculadoras/comun/CampoNumerico";
+import { CampoSeleccion } from "@/components/calculadoras/comun/CampoSeleccion";
 import { PanelFormulas } from "@/components/calculadoras/comun/PanelFormulas";
 import { PanelMetricas } from "@/components/calculadoras/comun/PanelMetricas";
 import { filasDeErrores, TablaEditable } from "@/components/calculadoras/comun/TablaEditable";
@@ -14,16 +15,29 @@ import {
   calcularBalance,
   COLUMNAS_CURVA,
   COLUMNAS_SERIE,
+  convertirCaudalSerie,
   cotaDeVolumen,
+  CUATRIMESTRES,
+  cuatrimestreDeMes,
   CURVA_EJEMPLO,
+  duracionPasoS,
+  FACTORES_PERCENTIL_S_SE,
+  PERCENTILES,
+  qambPorPercentil,
   serieEjemplo,
+  unidadCaudalDeEncabezado,
+  unidadCurvaDeEncabezado,
   validarCurva,
   validarSerie,
+  volumenDeCota,
   type PasoBalance,
   type PasoTiempo,
+  type Percentil,
   type PuntoCurva,
+  type RegistroSerie,
+  type UnidadCaudalSerie,
 } from "@/lib/calc/hidraulica/balance-embalse";
-import { descargarCsv, descargarXlsx, numeroDeCelda, type TablaSalida } from "@/lib/calculadoras/tablas";
+import { descargarCsv, descargarXlsx, fechaDeCelda, numeroDeCelda, type TablaSalida } from "@/lib/calculadoras/tablas";
 import { aNumero, fmt } from "@/lib/calculadoras/formato";
 import { buscarCalculadora } from "@/lib/calculadoras/registry";
 
@@ -40,6 +54,41 @@ const SERIE_EJEMPLO_DIARIA = serieEjemplo("diario");
 
 const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 
+// ── Unidades ───────────────────────────────────────────────────────────────
+
+const UNIDADES_VOLUMEN = ["hm³ y ha", "m³ y m²"] as const;
+
+interface Escala {
+  /** Unidad de pantalla por hm³ y por ha. */
+  v: number;
+  a: number;
+  nv: string;
+  na: string;
+  dv: number;
+  da: number;
+}
+function escalaDe(u: string): Escala {
+  return u === "m³ y m²"
+    ? { v: 1e6, a: 1e4, nv: "m³", na: "m²", dv: 0, da: 0 }
+    : { v: 1, a: 1, nv: "hm³", na: "ha", dv: 3, da: 1 };
+}
+
+const UNIDADES_CAUDAL = { "m³/s": "m3s", "m³ en el paso": "volumen" } as const satisfies Record<string, UnidadCaudalSerie>;
+type NombreUnidadCaudal = keyof typeof UNIDADES_CAUDAL;
+
+function textoNumero(n: number, maxDecimales = 6): string {
+  if (!Number.isFinite(n)) return "";
+  return String(+n.toFixed(maxDecimales)).replace(".", ",");
+}
+
+/** Reescala una celda numérica de texto; deja como está lo que no es número. */
+function reescalar(texto: string, factor: number): string {
+  const n = numeroDeCelda(texto);
+  return n === null || Number.isNaN(n) ? texto : textoNumero(n * factor, 8);
+}
+
+// ── Fechas y plantillas ────────────────────────────────────────────────────
+
 function fechaCorta(iso: string, paso: PasoTiempo): string {
   const [a, m, d] = iso.split("-");
   if (!a || !m) return iso;
@@ -51,80 +100,111 @@ function fechaUtc(iso: string): Date {
   return new Date(Date.UTC(a, m - 1, d));
 }
 
-function plantillaSerie(paso: PasoTiempo): TablaSalida[] {
+function sufijoCaudal(u: UnidadCaudalSerie, paso: PasoTiempo) {
+  return u === "m3s" ? "m³/s" : paso === "mensual" ? "m³/mes" : "m³/día";
+}
+
+function plantillaSerie(paso: PasoTiempo, unidad: UnidadCaudalSerie): TablaSalida[] {
   const filas = paso === "mensual" ? SERIE_EJEMPLO_MENSUAL : SERIE_EJEMPLO_DIARIA;
   const lamina = paso === "mensual" ? "mm en el mes" : "mm en el día";
+  const col = unidad === "m3s" ? "m3s" : paso === "mensual" ? "m3_mes" : "m3_dia";
+  const aUnidad = (f: string, t: string) => {
+    const n = numeroDeCelda(t) ?? 0;
+    return unidad === "m3s" ? n : Math.round(n * duracionPasoS(f, paso));
+  };
   return [
     {
       hoja: `Serie ${paso}`,
-      encabezados: COLUMNAS_SERIE.map((c) => c.nombre),
-      filas: filas.map(([f, ...v]) => [fechaUtc(f), ...v.map((x) => numeroDeCelda(x))]),
-      formatos: [paso === "mensual" ? "yyyy-mm" : "yyyy-mm-dd", "0.00", "0.0", "0.0", "0.00"],
+      encabezados: ["fecha", `aporte_${col}`, "precipitacion_mm", "evaporacion_mm", `demanda_${col}`],
+      filas: filas.map(([f, ap, p, e, ex]) => [fechaUtc(f), aUnidad(f, ap), numeroDeCelda(p), numeroDeCelda(e), aUnidad(f, ex)]),
+      formatos: [paso === "mensual" ? "yyyy-mm" : "yyyy-mm-dd", unidad === "m3s" ? "0.00" : "0", "0.0", "0.0", unidad === "m3s" ? "0.00" : "0"],
     },
     {
       hoja: "Instrucciones",
       encabezados: ["columna", "contenido", "unidad"],
       filas: [
         ["fecha", paso === "mensual" ? "Un mes por fila, consecutivos (cualquier día del mes)" : "Un día por fila, consecutivos", "aaaa-mm-dd"],
-        ["aporte_m3s", "Caudal medio de aporte al embalse en el paso", "m³/s"],
+        ["aporte", "Aporte de la cuenca al embalse en el paso", "m3/s, L/s o m3 del paso: se lee del encabezado (aporte_m3s, aporte_ls, aporte_m3_mes)"],
         ["precipitacion_mm", "Lámina de lluvia sobre el espejo de agua", lamina],
-        ["evaporacion_mm", "Lámina evaporada del espejo (ya corregida por coeficiente de tanque, si corresponde)", lamina],
-        ["extraccion_m3s", "Caudal medio extraído para usos (riego, agua potable, energía…)", "m³/s"],
+        ["evaporacion_mm", "Lámina evaporada de tanque (la calculadora aplica el coeficiente de tanque)", lamina],
+        ["demanda", "Volumen o caudal a suministrar en el paso", "igual que el aporte"],
         ["", "Sin celdas vacías ni valores negativos. Los encabezados pueden llevar tildes o mayúsculas.", ""],
       ],
     },
   ];
 }
 
-function plantillaCurva(): TablaSalida[] {
+function plantillaCurva(e: Escala): TablaSalida[] {
+  const sufA = e.na === "m²" ? "m2" : "ha";
+  const sufV = e.nv === "m³" ? "m3" : "hm3";
   return [
     {
       hoja: "Curva",
-      encabezados: COLUMNAS_CURVA.map((c) => c.nombre),
-      filas: CURVA_EJEMPLO.map((f) => f.map((x) => numeroDeCelda(x))),
-      formatos: ["0.00", "0.0", "0.000"],
+      encabezados: ["cota_m", `area_${sufA}`, `volumen_${sufV}`],
+      filas: CURVA_EJEMPLO.map(([z, a, v]) => [numeroDeCelda(z), (numeroDeCelda(a) ?? 0) * e.a, (numeroDeCelda(v) ?? 0) * e.v]),
+      formatos: ["0.00", e.da ? "0.0" : "0", e.dv ? "0.000" : "0"],
     },
   ];
 }
 
-function tablaResultados(pasos: PasoBalance[], paso: PasoTiempo): TablaSalida {
+function tablaResultados(pasos: PasoBalance[], paso: PasoTiempo, e: Escala): TablaSalida {
+  const nv = e.nv === "m³" ? "m3" : "hm3";
+  const na = e.na === "m²" ? "m2" : "ha";
+  const v = (x: number) => x * e.v;
   return {
     hoja: "Balance",
     encabezados: [
       "fecha",
       "dias",
-      "V_inicial_hm3",
-      "area_ha",
-      "aporte_hm3",
-      "precipitacion_hm3",
-      "evaporacion_hm3",
-      "extraccion_hm3",
-      "ecologico_hm3",
-      "infiltracion_hm3",
-      "deltaV_hm3",
-      "vertido_hm3",
-      "deficit_hm3",
-      "V_final_hm3",
+      `V_inicial_${nv}`,
+      `area_${na}`,
+      `aporte_${nv}`,
+      `lluvia_${nv}`,
+      `evaporacion_${nv}`,
+      `infiltracion_${nv}`,
+      `disponible_${nv}`,
+      `qamb_exigido_${nv}`,
+      `qamb_liberado_${nv}`,
+      `demanda_${nv}`,
+      `suministro_${nv}`,
+      `vertido_${nv}`,
+      `deficit_${nv}`,
+      `salida_aguas_abajo_${nv}`,
+      `V_final_${nv}`,
       "cota_final_m",
+      "cumple_demanda",
+      "cumple_qamb",
     ],
     filas: pasos.map((p) => [
       fechaUtc(p.fecha),
       p.duracionS / 86400,
-      p.volumenInicialHm3,
-      p.areaHa,
-      p.aporteHm3,
-      p.precipitacionHm3,
-      p.evaporacionHm3,
-      p.extraccionHm3,
-      p.ecologicoHm3,
-      p.infiltracionHm3,
-      p.deltaVHm3,
-      p.vertidoHm3,
-      p.deficitHm3,
-      p.volumenFinalHm3,
+      v(p.volumenInicialHm3),
+      p.areaHa * e.a,
+      v(p.aporteHm3),
+      v(p.precipitacionHm3),
+      v(p.evaporacionHm3),
+      v(p.infiltracionHm3),
+      v(p.disponibleHm3),
+      v(p.qambExigidoHm3),
+      v(p.qambLiberadoHm3),
+      v(p.demandaHm3),
+      v(p.suministroHm3),
+      v(p.vertidoHm3),
+      v(p.deficitHm3),
+      v(p.salidaAguasAbajoHm3),
+      v(p.volumenFinalHm3),
       p.cotaFinalM,
+      p.cumpleDemanda ? 1 : 0,
+      p.cumpleQamb ? 1 : 0,
     ]),
-    formatos: [paso === "mensual" ? "yyyy-mm" : "yyyy-mm-dd", "0", ...Array(12).fill("0.0000"), "0.000"],
+    formatos: [
+      paso === "mensual" ? "yyyy-mm" : "yyyy-mm-dd",
+      "0",
+      ...Array(15).fill(e.dv ? "0.000000" : "0.0"),
+      "0.000",
+      "0",
+      "0",
+    ],
   };
 }
 
@@ -145,20 +225,6 @@ function marcasTiempo(n: number): number[] {
   return marcas;
 }
 
-const COLUMNAS_TABLA_SERIE = [
-  { titulo: "Fecha", ejemplo: "2024-01-01", texto: true },
-  { titulo: "Aporte", sufijo: "m³/s" },
-  { titulo: "Precipitación", sufijo: "mm" },
-  { titulo: "Evaporación", sufijo: "mm" },
-  { titulo: "Extracción", sufijo: "m³/s" },
-];
-
-const COLUMNAS_TABLA_CURVA = [
-  { titulo: "Cota", sufijo: "m" },
-  { titulo: "Área", sufijo: "ha" },
-  { titulo: "Volumen", sufijo: "hm³" },
-];
-
 function siguienteFecha(filas: string[][], paso: PasoTiempo): string {
   const ultima = filas[filas.length - 1]?.[0];
   const m = ultima?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -169,6 +235,17 @@ function siguienteFecha(filas: string[][], paso: PasoTiempo): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Duración del paso de una fila, o null si la fecha no se puede leer. */
+function duracionDeFila(fecha: string, paso: PasoTiempo): number | null {
+  const f = fechaDeCelda(fecha);
+  if (!f) return null;
+  return duracionPasoS(`${f.anio}-${String(f.mes).padStart(2, "0")}-01`, paso);
+}
+
+const FACTORES_INICIALES = JSON.stringify(
+  PERCENTILES.map((p) => FACTORES_PERCENTIL_S_SE[p].map((x) => textoNumero(x)))
+);
+
 export default function BalanceEmbalsePage() {
   const [pasoNombre, setPasoNombre] = useCampo("paso", "Paso mensual");
   const paso = NOMBRE_PASO[pasoNombre] ?? "mensual";
@@ -178,75 +255,234 @@ export default function BalanceEmbalsePage() {
   const setFilasSerie = paso === "mensual" ? setSerieMensual : setSerieDiaria;
   const [filasCurva, setFilasCurva] = useTabla("curva", CURVA_EJEMPLO);
 
-  const [ecologicoTexto, setEcologico] = useCampo("ecologico", "0,5");
-  const [infiltracionTexto, setInfiltracion] = useCampo("infiltracion", "0,05");
+  const [unidadVolNombre, setUnidadVolNombre] = useCampo("unidadVolumen", "hm³ y ha");
+  const esc = escalaDe(unidadVolNombre);
+  const [unidadCaudalNombre, setUnidadCaudalNombre] = useCampo(`unidadCaudal-${paso}`, "m³/s");
+  const unidadCaudal: UnidadCaudalSerie = UNIDADES_CAUDAL[unidadCaudalNombre as NombreUnidadCaudal] ?? "m3s";
+
+  const [limitesPor, setLimitesPor] = useCampo("limitesPor", "Volumen");
   const [vInicialTexto, setVInicial] = useCampo("vInicial", "15");
   const [vMinTexto, setVMin] = useCampo("vMin", "1,5");
   const [vMaxTexto, setVMax] = useCampo("vMax", "21,3");
+  const [cotaMinTexto, setCotaMin] = useCampo("cotaMin", "314");
+  const [cotaMaxTexto, setCotaMax] = useCampo("cotaMax", "322");
+  const [infiltracionTexto, setInfiltracion] = useCampo("infiltracion", "0,05");
+  const [coefEvapTexto, setCoefEvap] = useCampo("coefEvap", "1");
+  const [areaEnNombre, setAreaEnNombre] = useCampo("areaEn", "Volumen medio del paso");
+
+  // Caudal ambiental
+  const [qambTipo, setQambTipo] = useCampo("qambTipo", "Constante");
+  const [qambConstTexto, setQambConst] = useCampo("qambConst", "500");
+  const [areaCuencaTexto, setAreaCuenca] = useCampo("areaCuenca", "73,1366");
+  const [qMedio0, setQMedio0] = useCampo("qMedio0", "14,9");
+  const [qMedio1, setQMedio1] = useCampo("qMedio1", "15,7");
+  const [qMedio2, setQMedio2] = useCampo("qMedio2", "5,9");
+  const [factoresJson, setFactoresJson] = useCampo("factores", FACTORES_INICIALES);
+  const [percentil, setPercentil] = useCampo("percentil", "Q80");
+  const [dicMarNombre, setDicMarNombre] = useCampo("dicMar", "No");
+  const [modoLibNombre, setModoLibNombre] = useCampo("modoLiberacion", "mín(aporte; Qamb)");
+
   const [pasoDetalleTexto, setPasoDetalle] = useCampo("pasoDetalle", "1");
 
-  const valores = {
-    caudalEcologicoM3s: aNumero(ecologicoTexto),
-    infiltracionM3s: aNumero(infiltracionTexto),
-    volumenInicialHm3: aNumero(vInicialTexto),
-    volumenMinimoHm3: aNumero(vMinTexto),
-    volumenMaximoHm3: aNumero(vMaxTexto),
-  };
-
-  const validacionSerie = useMemo(() => validarSerie(filasSerie, paso), [filasSerie, paso]);
-  const validacionCurva = useMemo(() => validarCurva(filasCurva), [filasCurva]);
-  const curva = validacionCurva.curva;
-
-  const erroresParametros: string[] = [];
-  const nombres: Record<keyof typeof valores, string> = {
-    caudalEcologicoM3s: "El caudal ecológico",
-    infiltracionM3s: "La infiltración",
-    volumenInicialHm3: "El volumen inicial",
-    volumenMinimoHm3: "El volumen mínimo",
-    volumenMaximoHm3: "El volumen máximo",
-  };
-  for (const [k, v] of Object.entries(valores) as [keyof typeof valores, number][]) {
-    if (!Number.isFinite(v)) erroresParametros.push(`${nombres[k]} no es un número.`);
-    else if (v < 0) erroresParametros.push(`${nombres[k]} no puede ser negativo.`);
-  }
-  if (erroresParametros.length === 0) {
-    if (valores.volumenMinimoHm3 >= valores.volumenMaximoHm3) {
-      erroresParametros.push("El volumen mínimo tiene que ser menor que el máximo.");
-    } else if (
-      valores.volumenInicialHm3 < valores.volumenMinimoHm3 ||
-      valores.volumenInicialHm3 > valores.volumenMaximoHm3
-    ) {
-      erroresParametros.push("El volumen inicial tiene que estar entre el mínimo y el máximo.");
+  const factoresTexto: string[][] = useMemo(() => {
+    try {
+      const v = JSON.parse(factoresJson);
+      if (Array.isArray(v) && v.length === 4) return v as string[][];
+    } catch {
+      // vuelve a los de la regionalización
     }
+    return JSON.parse(FACTORES_INICIALES);
+  }, [factoresJson]);
+  const cambiarFactor = (i: number, j: number, t: string) => {
+    const nuevo = factoresTexto.map((f) => [...f]);
+    nuevo[i][j] = t;
+    setFactoresJson(JSON.stringify(nuevo));
+  };
+
+  // ── Cambio de unidades: se reescala lo cargado para no cambiar su valor físico.
+  const cambiarUnidadVolumen = (nombre: string) => {
+    if (nombre === unidadVolNombre) return;
+    const nueva = escalaDe(nombre);
+    const fv = nueva.v / esc.v;
+    const fa = nueva.a / esc.a;
+    setVInicial(reescalar(vInicialTexto, fv));
+    setVMin(reescalar(vMinTexto, fv));
+    setVMax(reescalar(vMaxTexto, fv));
+    setFilasCurva(filasCurva.map(([z, a, v]) => [z, reescalar(a ?? "", fa), reescalar(v ?? "", fv)]));
+    setUnidadVolNombre(nombre);
+  };
+
+  const cambiarUnidadCaudal = (nombre: string) => {
+    const nueva = UNIDADES_CAUDAL[nombre as NombreUnidadCaudal];
+    if (!nueva || nueva === unidadCaudal) return;
+    const de = unidadCaudal === "m3s" ? "m3s" : "m3";
+    setFilasSerie(
+      filasSerie.map((fila) => {
+        const d = duracionDeFila(fila[0] ?? "", paso);
+        if (d === null) return fila;
+        const conv = (t: string) => {
+          const n = numeroDeCelda(t);
+          return n === null || Number.isNaN(n) ? t : textoNumero(convertirCaudalSerie(n, de, nueva, d), 6);
+        };
+        return [fila[0], conv(fila[1] ?? ""), fila[2], fila[3], conv(fila[4] ?? "")];
+      })
+    );
+    setUnidadCaudalNombre(nombre);
+  };
+
+  // ── Importaciones con unidad en el encabezado
+  const importarSerie = (celdas: string[][], enc: Record<string, string>) => {
+    const avisos: string[] = [];
+    const destino = unidadCaudal;
+    const unidades = { aporte: unidadCaudalDeEncabezado(enc.aporte ?? ""), extraccion: unidadCaudalDeEncabezado(enc.extraccion ?? "") };
+    const convertidas = celdas.map((fila) => {
+      const d = duracionDeFila(fila[0] ?? "", paso);
+      const conv = (t: string, de: ReturnType<typeof unidadCaudalDeEncabezado>) => {
+        const n = numeroDeCelda(t);
+        if (!de || d === null || n === null || Number.isNaN(n)) return t;
+        return textoNumero(convertirCaudalSerie(n, de, destino, d), 6);
+      };
+      return [fila[0], conv(fila[1], unidades.aporte), fila[2], fila[3], conv(fila[4], unidades.extraccion)];
+    });
+    const nombreUnidad = { m3s: "m³/s", ls: "L/s", m3: "m³ del paso", hm3: "hm³ del paso" } as const;
+    for (const [col, u] of Object.entries(unidades)) {
+      const nombre = col === "aporte" ? "el aporte" : "la demanda";
+      if (u && !(u === "m3s" && destino === "m3s") && !(u === "m3" && destino === "volumen")) {
+        avisos.push(`Convertí ${nombre} de ${nombreUnidad[u]} a ${sufijoCaudal(destino, paso)}, según el encabezado.`);
+      } else if (!u) {
+        avisos.push(`El encabezado de ${nombre} no dice la unidad: se tomó como ${sufijoCaudal(destino, paso)}.`);
+      }
+    }
+    setFilasSerie(convertidas);
+    return { avisos };
+  };
+
+  const importarCurva = (celdas: string[][], enc: Record<string, string>) => {
+    const avisos: string[] = [];
+    const uA = unidadCurvaDeEncabezado(enc.areaHa ?? "");
+    const uV = unidadCurvaDeEncabezado(enc.volumenHm3 ?? "");
+    // Factor desde la unidad del archivo a la de pantalla.
+    const fA = uA === "m2" ? esc.a / 1e4 : uA === "ha" ? esc.a : uA === "km2" ? esc.a * 100 : 1;
+    const fV = uV === "m3" ? esc.v / 1e6 : uV === "hm3" ? esc.v : 1;
+    if (uA && fA !== 1) avisos.push(`Convertí el área de ${uA === "m2" ? "m²" : uA === "km2" ? "km²" : "ha"} a ${esc.na}.`);
+    if (uV && fV !== 1) avisos.push(`Convertí el volumen de ${uV === "m3" ? "m³" : "hm³"} a ${esc.nv}.`);
+    if (!uA || !uV) avisos.push(`Sin unidad en el encabezado, el área y el volumen se tomaron en ${esc.na} y ${esc.nv}.`);
+    setFilasCurva(celdas.map(([z, a, v]) => [z, reescalar(a, fA), reescalar(v, fV)]));
+    return { avisos };
+  };
+
+  // ── Validación
+  const validacionSerie = useMemo(() => validarSerie(filasSerie, paso), [filasSerie, paso]);
+  const validacionCurvaPantalla = useMemo(() => validarCurva(filasCurva), [filasCurva]);
+  const curva: PuntoCurva[] | null = useMemo(
+    () =>
+      validacionCurvaPantalla.curva?.map((p) => ({
+        cotaM: p.cotaM,
+        areaHa: p.areaHa / esc.a,
+        volumenHm3: p.volumenHm3 / esc.v,
+      })) ?? null,
+    [validacionCurvaPantalla.curva, esc.a, esc.v]
+  );
+
+  const errores: string[] = [];
+  const num = (t: string, nombre: string, minimo = 0) => {
+    const v = aNumero(t);
+    if (!Number.isFinite(v)) errores.push(`${nombre} no es un número.`);
+    else if (v < minimo) errores.push(`${nombre} no puede ser menor que ${minimo}.`);
+    return v;
+  };
+
+  const vInicial = num(vInicialTexto, "El volumen inicial") / esc.v;
+  let vMin: number;
+  let vMax: number;
+  if (limitesPor === "Cota") {
+    const zMin = num(cotaMinTexto, "La cota mínima de toma", -Infinity);
+    const zMax = num(cotaMaxTexto, "La cota de vertido", -Infinity);
+    vMin = curva ? volumenDeCota(curva, zMin) : NaN;
+    vMax = curva ? volumenDeCota(curva, zMax) : NaN;
+  } else {
+    vMin = num(vMinTexto, "El volumen mínimo") / esc.v;
+    vMax = num(vMaxTexto, "El volumen máximo") / esc.v;
+  }
+  const infiltracionM3s = num(infiltracionTexto, "La infiltración");
+  const coefEvap = num(coefEvapTexto, "El coeficiente de evaporación");
+
+  let qambPorMesM3s: number[] = Array(12).fill(NaN);
+  if (qambTipo === "Por percentil") {
+    const areaKm2 = num(areaCuencaTexto, "El área de la cuenca");
+    const qm = [qMedio0, qMedio1, qMedio2].map((t, i) => num(t, `El q medio de ${CUATRIMESTRES[i]}`)) as [number, number, number];
+    const factores = Object.fromEntries(
+      PERCENTILES.map((p, i) => [p, factoresTexto[i].map((t, j) => num(t, `El factor ${p} de ${CUATRIMESTRES[j]}`)) as [number, number, number]])
+    ) as Record<Percentil, [number, number, number]>;
+    qambPorMesM3s = qambPorPercentil({
+      areaCuencaKm2: areaKm2,
+      qMedioLsKm2: qm,
+      factores,
+      percentil: (PERCENTILES as readonly string[]).includes(percentil) ? (percentil as Percentil) : "Q80",
+      dicMarTodoElAnio: dicMarNombre === "Sí",
+    });
+  } else {
+    qambPorMesM3s = Array(12).fill(num(qambConstTexto, "El caudal ambiental") / 1000);
+  }
+
+  if (errores.length === 0 && curva) {
+    if (!(vMin < vMax)) errores.push("El volumen mínimo (toma) tiene que ser menor que el de vertido.");
+    else if (vInicial < vMin || vInicial > vMax) errores.push("El volumen inicial tiene que estar entre el mínimo y el de vertido.");
   }
 
   const avisos: string[] = [];
-  if (curva && erroresParametros.length === 0) {
+  if (curva && errores.length === 0) {
     const ultimo = curva[curva.length - 1];
-    if (valores.volumenMaximoHm3 > ultimo.volumenHm3) {
+    if (vMax > ultimo.volumenHm3) {
       avisos.push(
-        `El volumen máximo (${fmt(valores.volumenMaximoHm3, 2)} hm³) supera el último punto de la curva (${fmt(ultimo.volumenHm3, 2)} hm³): por encima se toman la cota y el área de ese punto. Extendé la curva.`
+        `El volumen de vertido supera el último punto de la curva: por encima se toman la cota y el área de ese punto. Extendé la curva.`
       );
-    }
-    if (valores.volumenMinimoHm3 < curva[0].volumenHm3) {
-      avisos.push("El volumen mínimo está por debajo del primer punto de la curva: ahí se toman la cota y el área de ese punto.");
     }
   }
 
-  // Sin useMemo: aun diez años diarios se calculan en pocos milisegundos.
+  const serie: RegistroSerie[] | null = validacionSerie.serie;
   const resultado =
-    validacionSerie.serie && curva && erroresParametros.length === 0
-      ? calcularBalance({ paso, serie: validacionSerie.serie, curva, ...valores })
+    serie && curva && errores.length === 0
+      ? calcularBalance({
+          paso,
+          serie,
+          unidadCaudal,
+          curva,
+          qambPorMesM3s,
+          modoLiberacion: modoLibNombre === "Qamb completo" ? "completo" : "minimo-aporte",
+          infiltracionM3s,
+          coefEvaporacion: coefEvap,
+          areaEnPaso: areaEnNombre === "Volumen al inicio del paso" ? "inicio" : "medio",
+          volumenInicialHm3: vInicial,
+          volumenMinimoHm3: vMin,
+          volumenMaximoHm3: vMax,
+        })
       : null;
 
   const n = resultado?.pasos.length ?? 0;
   const pasoDetalle = Math.min(Math.max(1, Math.round(aNumero(pasoDetalleTexto)) || 1), Math.max(1, n));
   const detalle = resultado?.pasos[pasoDetalle - 1];
 
-  const cotaVmin = curva ? cotaDeVolumen(curva, valores.volumenMinimoHm3) : NaN;
-  const cotaVmax = curva ? cotaDeVolumen(curva, valores.volumenMaximoHm3) : NaN;
+  const cotaVmin = curva ? cotaDeVolumen(curva, vMin) : NaN;
+  const cotaVmax = curva ? cotaDeVolumen(curva, vMax) : NaN;
   const marcas = marcasTiempo(n);
   const unidadPaso = paso === "mensual" ? "meses" : "días";
+  const V = (x: number, extra = 0) => `${fmt(x * esc.v, esc.dv + extra)} ${esc.nv}`;
+  const pct = (x: number) => `${fmt(x * 100, 1)} %`;
+  const sufCaudal = sufijoCaudal(unidadCaudal, paso);
+
+  const columnasSerie = [
+    { titulo: "Fecha", ejemplo: "2024-01-01", texto: true },
+    { titulo: "Aporte", sufijo: sufCaudal },
+    { titulo: "Precipitación", sufijo: "mm" },
+    { titulo: "Evaporación tanque", sufijo: "mm" },
+    { titulo: "Demanda", sufijo: sufCaudal },
+  ];
+  const columnasCurva = [
+    { titulo: "Cota", sufijo: "m" },
+    { titulo: "Área", sufijo: esc.na },
+    { titulo: "Volumen", sufijo: esc.nv },
+  ];
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 py-10">
@@ -262,46 +498,57 @@ export default function BalanceEmbalsePage() {
         <div className="space-y-6">
           <div className="space-y-4">
             <p className="spec-label">Embalse</p>
+            <div className="grid grid-cols-2 gap-4">
+              <CampoSeleccion
+                id="unidadVolumen"
+                etiqueta="Unidades de volumen y área"
+                valor={escalaDe(unidadVolNombre).nv === "m³" ? "m³ y m²" : "hm³ y ha"}
+                opciones={UNIDADES_VOLUMEN}
+                onChange={cambiarUnidadVolumen}
+              />
+              <CampoSeleccion
+                id="limitesPor"
+                etiqueta="Límites del embalse por"
+                valor={limitesPor === "Cota" ? "Cota" : "Volumen"}
+                opciones={["Volumen", "Cota"]}
+                onChange={setLimitesPor}
+              />
+            </div>
+            {limitesPor === "Cota" ? (
+              <div className="grid grid-cols-2 gap-4">
+                <CampoNumerico id="cotaMin" etiqueta="Cota mínima de toma" sufijo="m" valor={cotaMinTexto} onChange={setCotaMin} />
+                <CampoNumerico id="cotaMax" etiqueta="Cota de vertido" sufijo="m" valor={cotaMaxTexto} onChange={setCotaMax} />
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                <CampoNumerico id="vMin" etiqueta="Volumen muerto (mín.)" sufijo={esc.nv} valor={vMinTexto} onChange={setVMin} />
+                <CampoNumerico id="vMax" etiqueta="Volumen de vertido (máx.)" sufijo={esc.nv} valor={vMaxTexto} onChange={setVMax} />
+              </div>
+            )}
+            {curva && Number.isFinite(vMin) && Number.isFinite(vMax) && (
+              <p className="-mt-2 text-xs text-muted-foreground">
+                Volumen muerto {V(vMin)} a cota {fmt(cotaVmin, 2)} m; vertido {V(vMax)} a cota {fmt(cotaVmax, 2)} m; volumen
+                útil {V(vMax - vMin)}.
+              </p>
+            )}
             <CampoNumerico
               id="vInicial"
               etiqueta="Volumen inicial"
-              sufijo="hm³"
+              sufijo={esc.nv}
               valor={vInicialTexto}
               onChange={setVInicial}
               advertencia="Volumen almacenado al comienzo del primer paso."
             />
-            <div className="grid grid-cols-2 gap-4">
-              <CampoNumerico
-                id="vMin"
-                etiqueta="Volumen mínimo (muerto)"
-                sufijo="hm³"
-                valor={vMinTexto}
-                onChange={setVMin}
-              />
-              <CampoNumerico
-                id="vMax"
-                etiqueta="Volumen máximo (vertedero)"
-                sufijo="hm³"
-                valor={vMaxTexto}
-                onChange={setVMax}
-              />
-            </div>
-            {curva && erroresParametros.length === 0 && (
-              <p className="text-xs text-muted-foreground">
-                Según la curva: volumen mínimo a cota {fmt(cotaVmin, 2)} m, vertedero a cota {fmt(cotaVmax, 2)} m.
-              </p>
-            )}
           </div>
 
           <div className="space-y-4">
-            <p className="spec-label">Salidas constantes</p>
+            <p className="spec-label">Pérdidas</p>
             <div className="grid grid-cols-2 gap-4">
               <CampoNumerico
-                id="ecologico"
-                etiqueta="Caudal ecológico liberado"
-                sufijo="m³/s"
-                valor={ecologicoTexto}
-                onChange={setEcologico}
+                id="coefEvap"
+                etiqueta="Coeficiente de tanque"
+                valor={coefEvapTexto}
+                onChange={setCoefEvap}
               />
               <CampoNumerico
                 id="infiltracion"
@@ -311,10 +558,17 @@ export default function BalanceEmbalsePage() {
                 onChange={setInfiltracion}
               />
             </div>
-            <p className="text-xs text-muted-foreground">
-              Se descuentan en todos los pasos, además de las extracciones de la serie.
+            <p className="-mt-2 text-xs text-muted-foreground">
+              Evaporación del lago = coeficiente × evaporación de tanque (0,7 es habitual para tanque A; 1 si la serie ya
+              es evaporación de lago).
             </p>
-            <ListaErrores titulo="Revisá los datos del embalse" errores={erroresParametros} />
+            <CampoSeleccion
+              id="areaEn"
+              etiqueta="Área del espejo para lluvia y evaporación"
+              valor={areaEnNombre === "Volumen al inicio del paso" ? "Volumen al inicio del paso" : "Volumen medio del paso"}
+              opciones={["Volumen medio del paso", "Volumen al inicio del paso"]}
+              onChange={setAreaEnNombre}
+            />
           </div>
         </div>
 
@@ -323,42 +577,204 @@ export default function BalanceEmbalsePage() {
           <BarraArchivos
             id="curva"
             especs={COLUMNAS_CURVA}
-            onImportar={setFilasCurva}
-            plantilla={plantillaCurva}
+            onImportar={importarCurva}
+            plantilla={() => plantillaCurva(esc)}
             nombrePlantilla="plantilla-curva-cota-area-volumen"
           />
           <TablaEditable
             id="tabla-curva"
-            columnas={COLUMNAS_TABLA_CURVA}
+            columnas={columnasCurva}
             filas={filasCurva}
             onChange={setFilasCurva}
-            filasConError={filasDeErrores(validacionCurva.errores)}
+            filasConError={filasDeErrores(validacionCurvaPantalla.errores)}
+            porPagina={40}
           />
-          <ListaErrores titulo="Errores en la curva" errores={validacionCurva.errores} />
+          <ListaErrores titulo="Errores en la curva" errores={validacionCurvaPantalla.errores} />
         </div>
       </div>
 
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <p className="spec-label">Serie {paso === "mensual" ? "mensual" : "diaria"} de entradas y extracciones</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Caudales medios del paso en m³/s; lluvia y evaporación como lámina en mm{" "}
-              {paso === "mensual" ? "del mes" : "del día"}, aplicada sobre el área del espejo. Columnas del
-              archivo: {COLUMNAS_SERIE.map((c) => c.nombre).join(", ")}.
+      <section className="space-y-4">
+        <p className="spec-label">Caudal ambiental</p>
+        <div className="grid gap-x-8 gap-y-4 lg:grid-cols-2">
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <CampoSeleccion
+                id="qambTipo"
+                etiqueta="Criterio"
+                valor={qambTipo === "Por percentil" ? "Por percentil" : "Constante"}
+                opciones={["Constante", "Por percentil"]}
+                onChange={setQambTipo}
+              />
+              {qambTipo === "Por percentil" ? (
+                <CampoSeleccion
+                  id="percentil"
+                  etiqueta="Percentil de permanencia"
+                  valor={percentil}
+                  opciones={PERCENTILES}
+                  onChange={setPercentil}
+                />
+              ) : (
+                <CampoNumerico id="qambConst" etiqueta="Qamb" sufijo="L/s" valor={qambConstTexto} onChange={setQambConst} />
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <CampoSeleccion
+                id="modoLiberacion"
+                etiqueta="Qué se libera"
+                valor={modoLibNombre === "Qamb completo" ? "Qamb completo" : "mín(aporte; Qamb)"}
+                opciones={["mín(aporte; Qamb)", "Qamb completo"]}
+                onChange={setModoLibNombre}
+              />
+              {qambTipo === "Por percentil" && (
+                <CampoSeleccion
+                  id="dicMar"
+                  etiqueta="Qamb de DIC-MAR todo el año"
+                  valor={dicMarNombre === "Sí" ? "Sí" : "No"}
+                  opciones={["No", "Sí"]}
+                  onChange={setDicMarNombre}
+                />
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              El caudal ambiental se libera antes que la demanda. Con «mín(aporte; Qamb)» nunca se suelta más de lo que entra
+              en el paso (cuando el arroyo trae menos que el Qamb, pasa todo el aporte).
+              {qambTipo === "Por percentil" &&
+                " Q60: Decreto 368/018, art. 5. Q80: criterio básico de la guía de caudales ambientales."}
             </p>
           </div>
+
+          {qambTipo === "Por percentil" && (
+            <div className="space-y-3">
+              <CampoNumerico
+                id="areaCuenca"
+                etiqueta="Área de la cuenca de aporte"
+                sufijo="km²"
+                valor={areaCuencaTexto}
+                onChange={setAreaCuenca}
+              />
+              <div className="overflow-x-auto rounded-lg border border-border/70">
+                <table className="w-full border-collapse text-sm">
+                  <thead className="bg-muted/40 text-[11px] text-muted-foreground">
+                    <tr>
+                      <th scope="col" className="px-2 py-1.5 text-left font-medium" />
+                      {CUATRIMESTRES.map((c) => (
+                        <th key={c} scope="col" className="px-2 py-1.5 text-left font-medium">
+                          {c}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-t border-border/40">
+                      <th scope="row" className="px-2 py-1 text-left text-xs font-normal text-muted-foreground">
+                        q medio (L/s/km²)
+                      </th>
+                      {[
+                        [qMedio0, setQMedio0],
+                        [qMedio1, setQMedio1],
+                        [qMedio2, setQMedio2],
+                      ].map(([v, set], j) => (
+                        <td key={j} className="px-0.5 py-0.5">
+                          <input
+                            aria-label={`q medio ${CUATRIMESTRES[j]}`}
+                            inputMode="decimal"
+                            value={v as string}
+                            onChange={(e) => (set as (t: string) => void)(e.target.value)}
+                            className="h-7 w-full rounded-sm border border-transparent bg-transparent px-1.5 font-mono text-[13px] tabular-nums outline-none hover:border-input focus:border-ring focus:bg-background"
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                    {PERCENTILES.map((p, i) => (
+                      <tr key={p} className={`border-t border-border/40 ${p === percentil ? "bg-accent/60" : ""}`}>
+                        <th scope="row" className="px-2 py-1 text-left text-xs font-normal text-muted-foreground">
+                          Factor {p}
+                        </th>
+                        {CUATRIMESTRES.map((c, j) => (
+                          <td key={c} className="px-0.5 py-0.5">
+                            <input
+                              aria-label={`Factor ${p} ${c}`}
+                              inputMode="decimal"
+                              value={factoresTexto[i]?.[j] ?? ""}
+                              onChange={(e) => cambiarFactor(i, j, e.target.value)}
+                              className="h-7 w-full rounded-sm border border-transparent bg-transparent px-1.5 font-mono text-[13px] tabular-nums outline-none hover:border-input focus:border-ring focus:bg-background"
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Factores q(FF%)/q de la Regionalización de caudales (Dinagua, 2025), subregión Sur / Sureste, y q medio de
+                ejemplo. Cargá los de tu cuenca nivel 2 y tu subregión.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {qambPorMesM3s.every(Number.isFinite) && (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[40rem] border-collapse text-right font-mono text-xs tabular-nums">
+              <caption className="pb-1 text-left font-sans text-xs text-muted-foreground">
+                Qamb exigido por mes{qambTipo === "Por percentil" ? ` (${percentil})` : ""}
+              </caption>
+              <thead className="font-sans text-[11px] text-muted-foreground">
+                <tr>
+                  <th scope="col" className="px-1.5 py-1 text-left font-medium">
+                    L/s
+                  </th>
+                  {MESES.map((m) => (
+                    <th key={m} scope="col" className="px-1.5 py-1 font-medium">
+                      {m}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-t border-border/40">
+                  <td />
+                  {qambPorMesM3s.map((q, i) => (
+                    <td key={i} className="px-1.5 py-1" title={CUATRIMESTRES[cuatrimestreDeMes(i)]}>
+                      {fmt(q * 1000, 1)}
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <p className="spec-label">Serie {paso === "mensual" ? "mensual" : "diaria"} de entradas y demanda</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Lluvia y evaporación de tanque como lámina en mm {paso === "mensual" ? "del mes" : "del día"}, aplicada sobre el
+            área del espejo. Columnas del archivo: fecha, aporte, precipitacion_mm, evaporacion_mm, demanda; la unidad de aporte
+            y demanda se lee del encabezado (p. ej. aporte_m3s o aporte_m3_mes) y se convierte sola.
+          </p>
+        </div>
+        <div className="w-48">
+          <CampoSeleccion
+            id="unidadCaudal"
+            etiqueta="Aporte y demanda en"
+            valor={unidadCaudal === "m3s" ? "m³/s" : "m³ en el paso"}
+            opciones={Object.keys(UNIDADES_CAUDAL)}
+            onChange={cambiarUnidadCaudal}
+          />
         </div>
         <BarraArchivos
           id="serie"
           especs={COLUMNAS_SERIE}
-          onImportar={setFilasSerie}
-          plantilla={() => plantillaSerie(paso)}
+          onImportar={importarSerie}
+          plantilla={() => plantillaSerie(paso, unidadCaudal)}
           nombrePlantilla={`plantilla-serie-${paso === "mensual" ? "mensual" : "diaria"}`}
         />
         <TablaEditable
           id="tabla-serie"
-          columnas={COLUMNAS_TABLA_SERIE}
+          columnas={columnasSerie}
           filas={filasSerie}
           onChange={setFilasSerie}
           filasConError={filasDeErrores(validacionSerie.errores)}
@@ -370,10 +786,11 @@ export default function BalanceEmbalsePage() {
 
       <section className="space-y-6">
         <p className="spec-label">Resultados</p>
+        <ListaErrores titulo="Revisá los datos" errores={errores} />
         <ListaAvisos avisos={avisos} />
         {!resultado ? (
           <div className="rounded-md bg-muted/50 p-4 text-sm text-muted-foreground">
-            Corregí los errores marcados arriba para calcular el balance.
+            Corregí los errores marcados para calcular el balance.
           </div>
         ) : (
           <>
@@ -381,25 +798,45 @@ export default function BalanceEmbalsePage() {
               horizontal
               metricas={[
                 {
-                  etiqueta: "Volumen mínimo alcanzado",
-                  valor: `${fmt(resultado.volumenMinimo.valorHm3, 2)} hm³`,
+                  etiqueta: "Garantía temporal",
+                  valor: pct(resultado.garantiaTemporal),
+                  nota: `${unidadPaso} con la demanda 100 % cubierta`,
+                  destacada: true,
+                },
+                {
+                  etiqueta: "Garantía volumétrica",
+                  valor: pct(resultado.garantiaVolumetrica),
+                  nota: "volumen suministrado / demandado",
+                },
+                {
+                  etiqueta: "Pasos con falla",
+                  valor: `${resultado.pasosConDeficit} de ${n}`,
+                  nota: `racha máx. ${resultado.rachaMaximaFalla} · déficit máx. ${V(resultado.deficitMaximoHm3)}`,
+                },
+                {
+                  etiqueta: "Cumplimiento del Qamb",
+                  valor: pct(resultado.cumplimientoQamb),
+                  nota: "salida aguas abajo ≥ Qamb exigido",
+                },
+                {
+                  etiqueta: "Volumen mínimo",
+                  valor: V(resultado.volumenMinimo.valorHm3),
                   nota: `${fechaCorta(resultado.volumenMinimo.fecha, paso)} · cota ${fmt(resultado.cotaMinimaM, 2)} m`,
                 },
                 {
-                  etiqueta: "Volumen máximo alcanzado",
-                  valor: `${fmt(resultado.volumenMaximo.valorHm3, 2)} hm³`,
+                  etiqueta: "Volumen máximo",
+                  valor: V(resultado.volumenMaximo.valorHm3),
                   nota: `${fechaCorta(resultado.volumenMaximo.fecha, paso)} · cota ${fmt(resultado.cotaMaximaM, 2)} m`,
-                },
-                {
-                  etiqueta: "Pasos con déficit",
-                  valor: `${resultado.pasosConDeficit} de ${n}`,
-                  nota: `Déficit total ${fmt(resultado.deficitTotalHm3, 3)} hm³`,
-                  destacada: true,
                 },
                 {
                   etiqueta: "Pasos con vertido",
                   valor: `${resultado.pasosConVertido} de ${n}`,
-                  nota: `Vertido total ${fmt(resultado.vertidoTotalHm3, 3)} hm³`,
+                  nota: `vertido total ${V(resultado.vertidoTotalHm3)}`,
+                },
+                {
+                  etiqueta: "Cierre del balance",
+                  valor: V(resultado.cierreHm3, 3),
+                  nota: "V₀ + entradas − salidas − V final",
                 },
               ]}
             />
@@ -411,27 +848,27 @@ export default function BalanceEmbalsePage() {
                   id: "volumen",
                   nombre: "Volumen",
                   color: "var(--serie-1)",
-                  puntos: resultado.pasos.map((p, i) => ({ x: i, y: p.volumenFinalHm3 })),
+                  puntos: resultado.pasos.map((p, i) => ({ x: i, y: p.volumenFinalHm3 * esc.v })),
                 },
               ]}
               referenciasY={[
-                { y: valores.volumenMaximoHm3, etiqueta: "Vertedero (Vmáx)" },
-                { y: valores.volumenMinimoHm3, etiqueta: "Volumen muerto (Vmín)" },
+                { y: vMax * esc.v, etiqueta: "Vertido (Vmáx)" },
+                { y: vMin * esc.v, etiqueta: "Volumen muerto (Vmín)" },
               ]}
               formatoX={(i) => fechaCorta(resultado.pasos[Math.round(i)]?.fecha ?? "", paso)}
-              formatoY={(y) => `${fmt(y, 1)}`}
-              formatoValor={(y) => `${fmt(y, 3)} hm³`}
+              formatoY={(y) => fmt(y, esc.dv ? 1 : 0)}
+              formatoValor={(y) => `${fmt(y, esc.dv)} ${esc.nv}`}
               ejeX={paso === "mensual" ? "Mes" : "Día"}
-              ejeY="Volumen (hm³)"
+              ejeY={`Volumen (${esc.nv})`}
               ticksX={marcas}
               desdeCero
               extraTooltip={(i) => {
                 const p = resultado.pasos[Math.round(i)];
                 if (!p) return [];
                 return [
-                  { etiqueta: "ΔV (hm³)", valor: fmt(p.deltaVHm3, 3) },
-                  ...(p.vertidoHm3 > 1e-9 ? [{ etiqueta: "vertido (hm³)", valor: fmt(p.vertidoHm3, 3) }] : []),
-                  ...(p.deficitHm3 > 1e-9 ? [{ etiqueta: "déficit (hm³)", valor: fmt(p.deficitHm3, 3) }] : []),
+                  { etiqueta: "suministro", valor: V(p.suministroHm3) },
+                  ...(p.vertidoHm3 > 0.5e-6 ? [{ etiqueta: "vertido", valor: V(p.vertidoHm3) }] : []),
+                  ...(!p.cumpleDemanda ? [{ etiqueta: "déficit", valor: V(p.deficitHm3) }] : []),
                 ];
               }}
             />
@@ -447,8 +884,8 @@ export default function BalanceEmbalsePage() {
                 },
               ]}
               referenciasY={[
-                { y: cotaVmax, etiqueta: "Cota de vertedero" },
-                { y: cotaVmin, etiqueta: "Cota del volumen muerto" },
+                { y: cotaVmax, etiqueta: "Cota de vertido" },
+                { y: cotaVmin, etiqueta: "Cota mínima de toma" },
               ]}
               formatoX={(i) => fechaCorta(resultado.pasos[Math.round(i)]?.fecha ?? "", paso)}
               formatoY={(y) => fmt(y, 1)}
@@ -461,12 +898,12 @@ export default function BalanceEmbalsePage() {
 
             <div className="space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-medium">Balance por paso</p>
+                <p className="text-sm font-medium">Balance por paso ({esc.nv})</p>
                 <div className="flex gap-1.5 print:hidden">
                   <button
                     type="button"
                     className={botonArchivo}
-                    onClick={() => descargarXlsx([tablaResultados(resultado.pasos, paso)], "balance-embalse.xlsx")}
+                    onClick={() => descargarXlsx([tablaResultados(resultado.pasos, paso, esc)], "balance-embalse.xlsx")}
                   >
                     <FileSpreadsheet className="h-3.5 w-3.5" />
                     Exportar .xlsx
@@ -474,7 +911,7 @@ export default function BalanceEmbalsePage() {
                   <button
                     type="button"
                     className={botonArchivo}
-                    onClick={() => descargarCsv(tablaResultados(resultado.pasos, paso), "balance-embalse.csv")}
+                    onClick={() => descargarCsv(tablaResultados(resultado.pasos, paso, esc), "balance-embalse.csv")}
                   >
                     <Download className="h-3.5 w-3.5" />
                     Exportar .csv
@@ -483,78 +920,67 @@ export default function BalanceEmbalsePage() {
               </div>
               <div className="max-h-[28rem] overflow-auto rounded-lg border border-border/70 print:max-h-none">
                 <table className="w-full border-collapse text-right font-mono text-xs tabular-nums">
-                  <thead className="sticky top-0 bg-muted text-[11px] font-sans text-muted-foreground">
+                  <thead className="sticky top-0 bg-muted font-sans text-[11px] text-muted-foreground">
                     <tr>
-                      {[
-                        ["#", ""],
-                        ["Fecha", ""],
-                        ["V inicial", "hm³"],
-                        ["Área", "ha"],
-                        ["Aporte", "hm³"],
-                        ["Lluvia", "hm³"],
-                        ["Evap.", "hm³"],
-                        ["Extracción", "hm³"],
-                        ["Ecológico", "hm³"],
-                        ["Infiltr.", "hm³"],
-                        ["ΔV", "hm³"],
-                        ["Vertido", "hm³"],
-                        ["Déficit", "hm³"],
-                        ["V final", "hm³"],
-                        ["Cota", "m"],
-                      ].map(([t, u]) => (
-                        <th key={t} scope="col" className="whitespace-nowrap px-2 py-1.5 font-medium">
-                          {t}
-                          {u && <span className="block font-normal">{u}</span>}
-                        </th>
-                      ))}
+                      {["#", "Fecha", "V inicial", `Área (${esc.na})`, "Aporte", "Lluvia", "Evap.", "Infiltr.", "Qamb exig.", "Qamb lib.", "Demanda", "Suministro", "Vertido", "Déficit", "V final", "Cota (m)"].map(
+                        (t) => (
+                          <th key={t} scope="col" className="whitespace-nowrap px-2 py-1.5 font-medium">
+                            {t}
+                          </th>
+                        )
+                      )}
                     </tr>
                   </thead>
                   <tbody>
-                    {resultado.pasos.map((p) => (
-                      <tr
-                        key={p.indice}
-                        className={`border-t border-border/40 ${p.indice + 1 === pasoDetalle ? "bg-accent/60" : ""}`}
-                      >
-                        <td className="px-2 py-1 text-muted-foreground">
-                          <button
-                            type="button"
-                            className="underline-offset-2 hover:text-foreground hover:underline"
-                            onClick={() => setPasoDetalle(String(p.indice + 1))}
-                            title="Ver el cálculo de este paso"
-                          >
-                            {p.indice + 1}
-                          </button>
-                        </td>
-                        <td className="whitespace-nowrap px-2 py-1 text-left">{fechaCorta(p.fecha, paso)}</td>
-                        <td className="px-2 py-1">{fmt(p.volumenInicialHm3, 3)}</td>
-                        <td className="px-2 py-1">{fmt(p.areaHa, 1)}</td>
-                        <td className="px-2 py-1">{fmt(p.aporteHm3, 3)}</td>
-                        <td className="px-2 py-1">{fmt(p.precipitacionHm3, 3)}</td>
-                        <td className="px-2 py-1">{fmt(p.evaporacionHm3, 3)}</td>
-                        <td className="px-2 py-1">{fmt(p.extraccionHm3, 3)}</td>
-                        <td className="px-2 py-1">{fmt(p.ecologicoHm3, 3)}</td>
-                        <td className="px-2 py-1">{fmt(p.infiltracionHm3, 3)}</td>
-                        <td className="px-2 py-1">{fmt(p.deltaVHm3, 3)}</td>
-                        <td className={`px-2 py-1 ${p.vertidoHm3 > 1e-9 ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
-                          {fmt(p.vertidoHm3, 3)}
-                        </td>
-                        <td className={`px-2 py-1 ${p.deficitHm3 > 1e-9 ? "font-semibold text-destructive" : "text-muted-foreground"}`}>
-                          {fmt(p.deficitHm3, 3)}
-                        </td>
-                        <td className="px-2 py-1 font-semibold">{fmt(p.volumenFinalHm3, 3)}</td>
-                        <td className="px-2 py-1">{fmt(p.cotaFinalM, 2)}</td>
-                      </tr>
-                    ))}
+                    {resultado.pasos.map((p) => {
+                      const c = (x: number) => fmt(x * esc.v, esc.dv);
+                      return (
+                        <tr
+                          key={p.indice}
+                          className={`border-t border-border/40 ${p.indice + 1 === pasoDetalle ? "bg-accent/60" : ""}`}
+                        >
+                          <td className="px-2 py-1 text-muted-foreground">
+                            <button
+                              type="button"
+                              className="underline-offset-2 hover:text-foreground hover:underline"
+                              onClick={() => setPasoDetalle(String(p.indice + 1))}
+                              title="Ver el cálculo de este paso"
+                            >
+                              {p.indice + 1}
+                            </button>
+                          </td>
+                          <td className="whitespace-nowrap px-2 py-1 text-left">{fechaCorta(p.fecha, paso)}</td>
+                          <td className="px-2 py-1">{c(p.volumenInicialHm3)}</td>
+                          <td className="px-2 py-1">{fmt(p.areaHa * esc.a, esc.da)}</td>
+                          <td className="px-2 py-1">{c(p.aporteHm3)}</td>
+                          <td className="px-2 py-1">{c(p.precipitacionHm3)}</td>
+                          <td className="px-2 py-1">{c(p.evaporacionHm3)}</td>
+                          <td className="px-2 py-1">{c(p.infiltracionHm3)}</td>
+                          <td className="px-2 py-1">{c(p.qambExigidoHm3)}</td>
+                          <td className={`px-2 py-1 ${p.cumpleQamb ? "" : "font-semibold text-destructive"}`}>{c(p.qambLiberadoHm3)}</td>
+                          <td className="px-2 py-1">{c(p.demandaHm3)}</td>
+                          <td className="px-2 py-1">{c(p.suministroHm3)}</td>
+                          <td className={`px-2 py-1 ${p.vertidoHm3 > 0.5e-6 ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
+                            {c(p.vertidoHm3)}
+                          </td>
+                          <td className={`px-2 py-1 ${!p.cumpleDemanda ? "font-semibold text-destructive" : "text-muted-foreground"}`}>
+                            {c(p.deficitHm3)}
+                          </td>
+                          <td className="px-2 py-1 font-semibold">{c(p.volumenFinalHm3)}</td>
+                          <td className="px-2 py-1">{fmt(p.cotaFinalM, 2)}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
               <p className="text-[11px] text-muted-foreground">
-                {n} {unidadPaso}. Entradas totales {fmt(resultado.entradasTotalesHm3, 2)} hm³, salidas totales{" "}
-                {fmt(resultado.salidasTotalesHm3, 2)} hm³. Tocá el número de un paso para ver su cálculo.
+                {n} {unidadPaso}. En rojo: Qamb liberado que no alcanza al exigido (salida aguas abajo menor que el Qamb) y
+                déficit de demanda. Tocá el número de un paso para ver su cálculo.
               </p>
             </div>
 
-            {detalle && curva && (
+            {detalle && curva && serie && (
               <div className="space-y-3">
                 <div className="flex flex-wrap items-end gap-3 print:hidden">
                   <div className="w-36">
@@ -569,7 +995,21 @@ export default function BalanceEmbalsePage() {
                 </div>
                 <PanelFormulas
                   titulo={`Ver cálculo · paso ${pasoDetalle} (${fechaCorta(detalle.fecha, paso)})`}
-                  filas={filasDetalle(detalle, curva, valores.volumenMinimoHm3, valores.volumenMaximoHm3, validacionSerie.serie![detalle.indice], valores.caudalEcologicoM3s, valores.infiltracionM3s, paso)}
+                  filas={filasDetalle({
+                    p: detalle,
+                    curva,
+                    vMin,
+                    vMax,
+                    reg: serie[detalle.indice],
+                    unidadCaudal,
+                    qambM3s: qambPorMesM3s[Number(detalle.fecha.slice(5, 7)) - 1],
+                    minimoAporte: modoLibNombre !== "Qamb completo",
+                    infiltracionM3s,
+                    coefEvap,
+                    areaMedio: areaEnNombre !== "Volumen al inicio del paso",
+                    paso,
+                    esc,
+                  })}
                 />
               </div>
             )}
@@ -580,110 +1020,137 @@ export default function BalanceEmbalsePage() {
   );
 }
 
-function filasDetalle(
-  p: PasoBalance,
-  curva: PuntoCurva[],
-  vMin: number,
-  vMax: number,
-  reg: { aporteM3s: number; precipitacionMm: number; evaporacionMm: number; extraccionM3s: number },
-  ecologico: number,
-  infiltracion: number,
-  paso: PasoTiempo
-) {
+function filasDetalle(o: {
+  p: PasoBalance;
+  curva: PuntoCurva[];
+  vMin: number;
+  vMax: number;
+  reg: RegistroSerie;
+  unidadCaudal: UnidadCaudalSerie;
+  qambM3s: number;
+  minimoAporte: boolean;
+  infiltracionM3s: number;
+  coefEvap: number;
+  areaMedio: boolean;
+  paso: PasoTiempo;
+  esc: Escala;
+}) {
+  const { p, curva, esc } = o;
+  const u = esc.nv;
+  const V = (x: number) => fmt(x * esc.v, esc.dv + 1);
+  const A = (x: number) => fmt(x * esc.a, esc.da + 1);
   const dt = p.duracionS;
-  const dias = dt / 86400;
-  const [a, b] = tramoCurva(curva, p.volumenMedioHm3);
-  const [c, d] = tramoCurva(curva, p.volumenFinalHm3);
   const dtTexto = fmt(dt, 0);
+  const [a, b] = tramoCurva(curva, p.volumenAreaHm3);
+  const [c, d] = tramoCurva(curva, p.volumenFinalHm3);
+  // Lámina × área: con áreas en ha, 1 mm·ha = 10 m³; con m², 1 mm·m² = 0,001 m³.
+  const factorLamina = esc.na === "m²" ? "/ 1000" : esc.nv === "hm³" ? "· 10⁻⁵" : "· 10";
+  const volCaudal = (q: number) =>
+    o.unidadCaudal === "m3s"
+      ? { formula: `Q · Δt${esc.nv === "hm³" ? " / 10⁶" : ""}`, sust: `${fmt(q, 4)} · ${dtTexto}${esc.nv === "hm³" ? " / 10⁶" : ""}` }
+      : { formula: `volumen del paso${esc.nv === "hm³" ? " / 10⁶" : ""}`, sust: `${fmt(q, 1)}${esc.nv === "hm³" ? " / 10⁶" : ""}` };
+  const ap = volCaudal(o.reg.aporte);
+  const de = volCaudal(o.reg.extraccion);
+
   return [
     {
       etiqueta: "Δt",
-      formula: paso === "mensual" ? "días del mes · 86 400 s" : "1 día · 86 400 s",
-      sustitucion: `${fmt(dias, 0)} · 86 400`,
+      formula: o.paso === "mensual" ? "días del mes · 86 400 s" : "1 día · 86 400 s",
+      sustitucion: `${fmt(dt / 86400, 0)} · 86 400`,
       valor: `${dtTexto} s`,
     },
+    { etiqueta: "Aporte", formula: ap.formula, sustitucion: ap.sust, valor: `${V(p.aporteHm3)} ${u}` },
+    o.areaMedio
+      ? {
+          etiqueta: "V̄ (volumen medio)",
+          formula: "(V_inicial + V_final) / 2",
+          sustitucion: `(${V(p.volumenInicialHm3)} + ${V(p.volumenFinalHm3)}) / 2`,
+          valor: `${V(p.volumenAreaHm3)} ${u}`,
+        }
+      : { etiqueta: "Área en el volumen inicial", valor: `${V(p.volumenAreaHm3)} ${u}` },
     {
-      etiqueta: "V_aporte",
-      formula: "Q_aporte · Δt / 10⁶",
-      sustitucion: `${fmt(reg.aporteM3s, 3)} · ${dtTexto} / 10⁶`,
-      valor: `${fmt(p.aporteHm3, 4)} hm³`,
+      etiqueta: "A",
+      formula: "A₁ + (V − V₁)·(A₂ − A₁)/(V₂ − V₁)",
+      sustitucion: `${A(a.areaHa)} + (${V(p.volumenAreaHm3)} − ${V(a.volumenHm3)})·(${A(b.areaHa)} − ${A(a.areaHa)})/(${V(b.volumenHm3)} − ${V(a.volumenHm3)})`,
+      valor: `${A(p.areaHa)} ${esc.na}${o.areaMedio ? `  (${p.iteraciones} iteraciones)` : ""}`,
     },
     {
-      etiqueta: "V_extracción",
-      formula: "Q_extracción · Δt / 10⁶",
-      sustitucion: `${fmt(reg.extraccionM3s, 3)} · ${dtTexto} / 10⁶`,
-      valor: `${fmt(p.extraccionHm3, 4)} hm³`,
+      etiqueta: "Lluvia",
+      formula: `P · A ${factorLamina}`,
+      sustitucion: `${fmt(o.reg.precipitacionMm, 1)} · ${A(p.areaHa)} ${factorLamina}`,
+      valor: `${V(p.precipitacionHm3)} ${u}`,
     },
     {
-      etiqueta: "V_ecológico",
-      formula: "Q_eco · Δt / 10⁶",
-      sustitucion: `${fmt(ecologico, 3)} · ${dtTexto} / 10⁶`,
-      valor: `${fmt(p.ecologicoHm3, 4)} hm³`,
+      etiqueta: "Evaporación",
+      formula: `mín(E · k · A ${factorLamina}; V_ini + Aporte + Lluvia)`,
+      sustitucion: `mín(${fmt(o.reg.evaporacionMm, 1)} · ${fmt(o.coefEvap, 2)} · ${A(p.areaHa)} ${factorLamina}; …)`,
+      valor: `${V(p.evaporacionHm3)} ${u}`,
     },
     {
-      etiqueta: "V_infiltración",
-      formula: "Q_inf · Δt / 10⁶",
-      sustitucion: `${fmt(infiltracion, 3)} · ${dtTexto} / 10⁶`,
-      valor: `${fmt(p.infiltracionHm3, 4)} hm³`,
+      etiqueta: "Infiltración",
+      formula: `Q_inf · Δt${esc.nv === "hm³" ? " / 10⁶" : ""}`,
+      sustitucion: `${fmt(o.infiltracionM3s, 3)} · ${dtTexto}${esc.nv === "hm³" ? " / 10⁶" : ""}`,
+      valor: `${V(p.infiltracionHm3)} ${u}`,
     },
     {
-      etiqueta: "V̄ (volumen medio)",
-      formula: "(V_inicial + V_final) / 2",
-      sustitucion: `(${fmt(p.volumenInicialHm3, 4)} + ${fmt(p.volumenFinalHm3, 4)}) / 2`,
-      valor: `${fmt(p.volumenMedioHm3, 4)} hm³`,
+      etiqueta: "W (disponible)",
+      formula: "V_ini + Aporte + Lluvia − Evap − Infiltr",
+      sustitucion: `${V(p.volumenInicialHm3)} + ${V(p.aporteHm3)} + ${V(p.precipitacionHm3)} − ${V(p.evaporacionHm3)} − ${V(p.infiltracionHm3)}`,
+      valor: `${V(p.disponibleHm3)} ${u}`,
     },
     {
-      etiqueta: "A(V̄)",
-      formula: "A₁ + (V̄ − V₁)·(A₂ − A₁)/(V₂ − V₁)",
-      sustitucion: `${fmt(a.areaHa, 1)} + (${fmt(p.volumenMedioHm3, 4)} − ${fmt(a.volumenHm3, 3)})·(${fmt(b.areaHa, 1)} − ${fmt(a.areaHa, 1)})/(${fmt(b.volumenHm3, 3)} − ${fmt(a.volumenHm3, 3)})`,
-      valor: `${fmt(p.areaHa, 2)} ha  (${p.iteraciones} iteraciones)`,
+      etiqueta: "Qamb exigido",
+      formula: `Qamb(mes) · Δt${esc.nv === "hm³" ? " / 10⁶" : ""}`,
+      sustitucion: `${fmt(o.qambM3s * 1000, 2)} L/s · ${dtTexto} s / 1000${esc.nv === "hm³" ? " / 10⁶" : ""}`,
+      valor: `${V(p.qambExigidoHm3)} ${u}`,
     },
     {
-      etiqueta: "V_lluvia",
-      formula: "P · A · 10⁻⁵",
-      sustitucion: `${fmt(reg.precipitacionMm, 1)} · ${fmt(p.areaHa, 2)} · 10⁻⁵`,
-      valor: `${fmt(p.precipitacionHm3, 4)} hm³`,
+      etiqueta: "Qamb objetivo",
+      formula: o.minimoAporte ? "mín(Qamb exigido; Aporte)" : "Qamb exigido",
+      sustitucion: o.minimoAporte ? `mín(${V(p.qambExigidoHm3)}; ${V(p.aporteHm3)})` : V(p.qambExigidoHm3),
+      valor: `${V(p.qambObjetivoHm3)} ${u}`,
     },
     {
-      etiqueta: "V_evaporación",
-      formula: "E · A · 10⁻⁵",
-      sustitucion: `${fmt(reg.evaporacionMm, 1)} · ${fmt(p.areaHa, 2)} · 10⁻⁵`,
-      valor: `${fmt(p.evaporacionHm3, 4)} hm³`,
+      etiqueta: "Qamb liberado",
+      formula: "mín(Qamb objetivo; W)",
+      sustitucion: `mín(${V(p.qambObjetivoHm3)}; ${V(p.disponibleHm3)})`,
+      valor: `${V(p.qambLiberadoHm3)} ${u}`,
     },
+    { etiqueta: "Demanda", formula: de.formula, sustitucion: de.sust, valor: `${V(p.demandaHm3)} ${u}` },
     {
-      etiqueta: "ΔV",
-      formula: "(V_aporte + V_lluvia) − (V_extr + V_eco + V_inf + V_evap)",
-      sustitucion: `(${fmt(p.aporteHm3, 4)} + ${fmt(p.precipitacionHm3, 4)}) − (${fmt(p.extraccionHm3, 4)} + ${fmt(p.ecologicoHm3, 4)} + ${fmt(p.infiltracionHm3, 4)} + ${fmt(p.evaporacionHm3, 4)})`,
-      valor: `${fmt(p.deltaVHm3, 4)} hm³`,
-    },
-    {
-      etiqueta: "V*",
-      formula: "V_inicial + ΔV",
-      sustitucion: `${fmt(p.volumenInicialHm3, 4)} + ${fmt(p.deltaVHm3, 4)}`,
-      valor: `${fmt(p.volumenSinLimitarHm3, 4)} hm³`,
+      etiqueta: "Suministro",
+      formula: "máx(0; mín(Demanda; W − Qamb lib − V_mín))",
+      sustitucion: `máx(0; mín(${V(p.demandaHm3)}; ${V(p.disponibleHm3)} − ${V(p.qambLiberadoHm3)} − ${V(o.vMin)}))`,
+      valor: `${V(p.suministroHm3)} ${u}`,
     },
     {
       etiqueta: "Vertido",
-      formula: "máx(0; V* − V_máx)",
-      sustitucion: `máx(0; ${fmt(p.volumenSinLimitarHm3, 4)} − ${fmt(vMax, 3)})`,
-      valor: `${fmt(p.vertidoHm3, 4)} hm³`,
-    },
-    {
-      etiqueta: "Déficit",
-      formula: "máx(0; V_mín − V*)",
-      sustitucion: `máx(0; ${fmt(vMin, 3)} − ${fmt(p.volumenSinLimitarHm3, 4)})`,
-      valor: `${fmt(p.deficitHm3, 4)} hm³`,
+      formula: "máx(0; W − Qamb lib − Suministro − V_máx)",
+      sustitucion: `máx(0; ${V(p.disponibleHm3)} − ${V(p.qambLiberadoHm3)} − ${V(p.suministroHm3)} − ${V(o.vMax)})`,
+      valor: `${V(p.vertidoHm3)} ${u}`,
     },
     {
       etiqueta: "V_final",
-      formula: "mín(V_máx; máx(V_mín; V*))",
-      sustitucion: `mín(${fmt(vMax, 3)}; máx(${fmt(vMin, 3)}; ${fmt(p.volumenSinLimitarHm3, 4)}))`,
-      valor: `${fmt(p.volumenFinalHm3, 4)} hm³`,
+      formula: "W − Qamb lib − Suministro − Vertido",
+      sustitucion: `${V(p.disponibleHm3)} − ${V(p.qambLiberadoHm3)} − ${V(p.suministroHm3)} − ${V(p.vertidoHm3)}`,
+      valor: `${V(p.volumenFinalHm3)} ${u}`,
+    },
+    {
+      etiqueta: "Déficit",
+      formula: "Demanda − Suministro",
+      sustitucion: `${V(p.demandaHm3)} − ${V(p.suministroHm3)}`,
+      valor: `${V(p.deficitHm3)} ${u}`,
+    },
+    {
+      etiqueta: "Cumple Qamb",
+      formula: "Qamb lib + Vertido ≥ Qamb exigido",
+      sustitucion: `${V(p.qambLiberadoHm3)} + ${V(p.vertidoHm3)} ≥ ${V(p.qambExigidoHm3)}`,
+      valor: p.cumpleQamb ? "sí" : "no",
     },
     {
       etiqueta: "Cota final",
       formula: "z₁ + (V_final − V₁)·(z₂ − z₁)/(V₂ − V₁)",
-      sustitucion: `${fmt(c.cotaM, 2)} + (${fmt(p.volumenFinalHm3, 4)} − ${fmt(c.volumenHm3, 3)})·(${fmt(d.cotaM, 2)} − ${fmt(c.cotaM, 2)})/(${fmt(d.volumenHm3, 3)} − ${fmt(c.volumenHm3, 3)})`,
+      sustitucion: `${fmt(c.cotaM, 2)} + (${V(p.volumenFinalHm3)} − ${V(c.volumenHm3)})·(${fmt(d.cotaM, 2)} − ${fmt(c.cotaM, 2)})/(${V(d.volumenHm3)} − ${V(c.volumenHm3)})`,
       valor: `${fmt(p.cotaFinalM, 3)} m`,
     },
   ];

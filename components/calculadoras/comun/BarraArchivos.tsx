@@ -5,7 +5,7 @@ import { Download, FileSpreadsheet, Upload } from "lucide-react";
 import {
   descargarCsv,
   descargarXlsx,
-  importarTabla,
+  importarLibro,
   leerArchivoTabla,
   type EspecColumna,
   type TablaSalida,
@@ -17,8 +17,12 @@ export const botonArchivo =
 interface BarraArchivosProps {
   id: string;
   especs: readonly EspecColumna[];
-  /** Se llama con la tabla ya ordenada según `especs`. */
-  onImportar: (celdas: string[][]) => void;
+  /**
+   * Se llama con la tabla ya ordenada según `especs` y los encabezados
+   * normalizados. Puede devolver avisos (p. ej. unidades convertidas) o errores
+   * que frenan la importación.
+   */
+  onImportar: (celdas: string[][], encabezados: Record<string, string>) => { avisos?: string[]; errores?: string[] } | void;
   /** Plantilla descargable: la primera tabla va también al CSV. */
   plantilla?: () => TablaSalida[];
   nombrePlantilla?: string;
@@ -40,18 +44,23 @@ export function BarraArchivos({ id, especs, onImportar, plantilla, nombrePlantil
     setLeyendo(true);
     setMensaje(null);
     try {
-      const crudo = await leerArchivoTabla(archivo);
-      const r = importarTabla(crudo, especs);
+      const hojas = await leerArchivoTabla(archivo);
+      const r = importarLibro(hojas, especs);
       if (r.errores.length > 0) {
         setMensaje({ tipo: "error", lineas: [`No se importó «${archivo.name}»:`, ...r.errores] });
       } else {
-        onImportar(r.celdas);
-        setMensaje({
-          tipo: "ok",
-          lineas: [
-            `Se importaron ${r.celdas.length} filas de «${archivo.name}». Si hay errores en los datos, aparecen debajo con el número de fila de la tabla.`,
-          ],
-        });
+        const extra = onImportar(r.celdas, r.encabezados) ?? {};
+        if (extra.errores?.length) {
+          setMensaje({ tipo: "error", lineas: [`No se importó «${archivo.name}»:`, ...extra.errores] });
+        } else {
+          setMensaje({
+            tipo: "ok",
+            lineas: [
+              `Se importaron ${r.celdas.length} filas de «${archivo.name}»${hojas.length > 1 ? `, hoja «${r.hoja}»` : ""}. Si hay errores en los datos, aparecen debajo con el número de fila de la tabla.`,
+              ...(extra.avisos ?? []),
+            ],
+          });
+        }
       }
     } catch (e) {
       setMensaje({

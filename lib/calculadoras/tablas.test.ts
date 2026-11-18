@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fechaDeCelda, importarTabla, numeroDeCelda, parsearCsv } from "@/lib/calculadoras/tablas";
+import { fechaDeCelda, importarLibro, importarTabla, numeroDeCelda, parsearCsv } from "@/lib/calculadoras/tablas";
 import { COLUMNAS_SERIE } from "@/lib/calc/hidraulica/balance-embalse";
 
 describe("numeroDeCelda", () => {
@@ -29,6 +29,7 @@ describe("importarTabla", () => {
     const r = importarTabla(parsearCsv(csv), COLUMNAS_SERIE);
     expect(r.errores).toEqual([]);
     expect(r.celdas).toEqual([["2024-01-01", "3", "80", "120", "1,5"]]);
+    expect(r.encabezados.aporte).toBe("aporte_m3_s");
     expect(r.filasArchivo).toEqual([2]);
   });
 
@@ -44,5 +45,35 @@ describe("importarTabla", () => {
       COLUMNAS_SERIE
     );
     expect(r.celdas.map((c) => c[0])).toEqual(["2024-01-01", "2024-02-01"]);
+  });
+});
+
+describe("importarLibro", () => {
+  it("busca la hoja y la fila del encabezado, y toma la fila de unidades", () => {
+    const hojas = [
+      { nombre: "Resumen", filas: [["Resumen del estudio"], ["Volumen", 123]] },
+      {
+        nombre: "Balance",
+        filas: [
+          ["Balance hídrico mensual"],
+          [],
+          ["Mes", "Días", "Aporte cuenca (Temez)", "P", "Evap. Tanque A", "Demanda", "Suministro"],
+          ["", "d", "m³", "mm", "mm", "m³", "m³"],
+          [new Date(Date.UTC(1985, 0, 1)), 31, 286313, 65.5, 284.91, 20000, 20000],
+          ["", "", "", "", "", "", ""],
+        ],
+      },
+    ];
+    const r = importarLibro(hojas, COLUMNAS_SERIE);
+    expect(r.errores).toEqual([]);
+    expect(r.hoja).toBe("Balance");
+    expect(r.celdas).toEqual([["1985-01-01", "286313", "65,5", "284,91", "20000"]]);
+    expect(r.encabezados.aporte).toBe("aporte_cuenca_temez_m3");
+    expect(r.filasArchivo).toEqual([5]);
+  });
+
+  it("si ninguna hoja sirve, dice cuáles probó", () => {
+    const r = importarLibro([{ nombre: "A", filas: [["x"]] }, { nombre: "B", filas: [["fecha", "aporte"]] }], COLUMNAS_SERIE);
+    expect(r.errores[0]).toMatch(/Ninguna de las 2 hojas/);
   });
 });

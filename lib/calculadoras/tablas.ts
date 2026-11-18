@@ -28,6 +28,7 @@ export function normalizarEncabezado(texto: string): string {
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
     .replace(/³/g, "3")
+    .replace(/²/g, "2")
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
 }
@@ -42,22 +43,17 @@ export interface ResultadoImportacion {
   celdas: string[][];
   /** Número de fila del archivo de cada fila de `celdas` (1 = encabezado). */
   filasArchivo: number[];
+  /** Encabezado normalizado de cada columna encontrada, por clave (para leer unidades). */
+  encabezados: Record<string, string>;
   errores: string[];
 }
 
-/**
- * Ubica las columnas por su encabezado y devuelve la tabla en el orden que
- * espera la calculadora. La primera fila no vacía es el encabezado.
- */
-export function importarTabla(crudo: Celda[][], especs: readonly EspecColumna[]): ResultadoImportacion {
-  const errores: string[] = [];
-  const inicio = crudo.findIndex((fila) => fila.some((c) => textoCelda(c) !== ""));
-  if (inicio < 0) return { celdas: [], filasArchivo: [], errores: ["El archivo está vacío."] };
+/** Hasta qué fila se busca el encabezado (puede haber títulos o notas arriba). */
+const FILAS_BUSQUEDA_ENCABEZADO = 30;
 
-  const encabezados = crudo[inicio].map((c) => textoCelda(c));
+function ubicarColumnas(encabezados: string[], especs: readonly EspecColumna[]) {
   const indices = new Map<string, number>();
   const usados = new Set<number>();
-
   for (const espec of especs) {
     const i = encabezados.findIndex((e, j) => !usados.has(j) && e !== "" && coincide(normalizarEncabezado(e), espec));
     if (i >= 0) {
@@ -65,8 +61,48 @@ export function importarTabla(crudo: Celda[][], especs: readonly EspecColumna[])
       usados.add(i);
     }
   }
+  return { indices, usados };
+}
 
-  const faltantes = especs.filter((e) => e.obligatoria && !indices.has(e.clave));
+/** Fila de unidades bajo el encabezado: tiene texto y ningún número ni fecha. */
+function esFilaDeUnidades(fila: Celda[] | undefined): boolean {
+  if (!fila) return false;
+  const llenas = fila.filter((c) => textoCelda(c) !== "");
+  return (
+    llenas.length > 0 &&
+    llenas.every((c) => typeof c === "string" && numeroDeCelda(c) !== null && Number.isNaN(numeroDeCelda(c)) && !fechaDeCelda(c))
+  );
+}
+
+/**
+ * Ubica las columnas por su encabezado y devuelve la tabla en el orden que
+ * espera la calculadora. El encabezado es la fila, entre las primeras 30, que
+ * reúne más columnas reconocidas (arriba puede haber un título). Si debajo hay
+ * una fila de unidades («m³», «mm»), se suma al encabezado para leer la unidad
+ * y no se toma como dato.
+ */
+export function importarTabla(crudo: Celda[][], especs: readonly EspecColumna[]): ResultadoImportacion {
+  const errores: string[] = [];
+  const primera = crudo.findIndex((fila) => fila.some((c) => textoCelda(c) !== ""));
+  if (primera < 0) return { celdas: [], filasArchivo: [], encabezados: {}, errores: ["El archivo está vacío."] };
+
+  const obligatorias = especs.filter((e) => e.obligatoria);
+  let inicio = primera;
+  let mejor = -1;
+  for (let f = primera; f < Math.min(crudo.length, primera + FILAS_BUSQUEDA_ENCABEZADO); f++) {
+    const { indices } = ubicarColumnas(crudo[f].map((c) => textoCelda(c)), especs);
+    const puntaje = obligatorias.filter((e) => indices.has(e.clave)).length * 100 + indices.size;
+    if (puntaje > mejor) {
+      mejor = puntaje;
+      inicio = f;
+    }
+    if (obligatorias.every((e) => indices.has(e.clave))) break;
+  }
+
+  const encabezados = crudo[inicio].map((c) => textoCelda(c));
+  const { indices, usados } = ubicarColumnas(encabezados, especs);
+
+  const faltantes = obligatorias.filter((e) => !indices.has(e.clave));
   if (faltantes.length > 0) {
     const sobrantes = encabezados.filter((e, j) => e !== "" && !usados.has(j));
     errores.push(
@@ -76,13 +112,23 @@ export function importarTabla(crudo: Celda[][], especs: readonly EspecColumna[])
     if (sobrantes.length > 0) {
       errores.push(`No se reconocieron estas columnas del archivo: ${sobrantes.map((s) => `«${s}»`).join(", ")}.`);
     }
-    return { celdas: [], filasArchivo: [], errores };
+    return { celdas: [], filasArchivo: [], encabezados: {}, errores };
+  }
+
+  let datosDesde = inicio + 1;
+  const unidades = esFilaDeUnidades(crudo[datosDesde]) ? crudo[datosDesde].map((c) => textoCelda(c)) : null;
+  if (unidades) datosDesde++;
+
+  const encabezadosEncontrados: Record<string, string> = {};
+  for (const [clave, i] of indices) {
+    const u = unidades?.[i] ?? "";
+    encabezadosEncontrados[clave] = normalizarEncabezado(u ? `${encabezados[i]} ${u}` : encabezados[i]);
   }
 
   const celdas: string[][] = [];
   const filasArchivo: number[] = [];
-  for (let f = inicio + 1; f < crudo.length; f++) {
-    const fila = crudo[f];
+  for (let f = datosDesde; f < crudo.length; f++) {
+    const fila = crudo[f] ?? [];
     const valores = especs.map((e) => {
       const i = indices.get(e.clave);
       if (i === undefined) return "";
@@ -94,7 +140,37 @@ export function importarTabla(crudo: Celda[][], especs: readonly EspecColumna[])
     filasArchivo.push(f + 1);
   }
   if (celdas.length === 0) errores.push("El archivo tiene encabezados pero ninguna fila de datos.");
-  return { celdas, filasArchivo, errores };
+  return { celdas, filasArchivo, encabezados: encabezadosEncontrados, errores };
+}
+
+export interface HojaLeida {
+  nombre: string;
+  filas: Celda[][];
+}
+
+/**
+ * Prueba cada hoja del libro y se queda con la primera que tiene todas las
+ * columnas obligatorias. Si ninguna las tiene, informa los errores de la que
+ * más se acercó.
+ */
+export function importarLibro(
+  hojas: readonly HojaLeida[],
+  especs: readonly EspecColumna[]
+): ResultadoImportacion & { hoja: string } {
+  let mejor: (ResultadoImportacion & { hoja: string }) | null = null;
+  for (const h of hojas) {
+    const r = { ...importarTabla(h.filas, especs), hoja: h.nombre };
+    if (r.errores.length === 0) return r;
+    if (!mejor || r.errores.length < mejor.errores.length) mejor = r;
+  }
+  if (!mejor) return { celdas: [], filasArchivo: [], encabezados: {}, errores: ["El archivo está vacío."], hoja: "" };
+  if (hojas.length > 1) {
+    mejor.errores = [
+      `Ninguna de las ${hojas.length} hojas (${hojas.map((h) => `«${h.nombre}»`).join(", ")}) tiene todas las columnas.`,
+      ...mejor.errores.map((e) => `Hoja «${mejor!.hoja}»: ${e}`),
+    ];
+  }
+  return mejor;
 }
 
 function textoCelda(c: Celda): string {
@@ -104,7 +180,8 @@ function textoCelda(c: Celda): string {
 }
 
 function textoNumero(c: Celda): string {
-  if (typeof c === "number") return String(c).replace(".", ",");
+  // 12 cifras significativas: saca el ruido de coma flotante (160,90000000000003) sin perder precisión útil.
+  if (typeof c === "number") return String(+c.toPrecision(12)).replace(".", ",");
   return textoCelda(c);
 }
 
@@ -222,32 +299,33 @@ export function parsearCsv(texto: string): string[][] {
   return filas;
 }
 
-/** Lee la primera hoja de un .xlsx, o un .csv/.txt, como matriz de celdas. */
-export async function leerArchivoTabla(archivo: File): Promise<Celda[][]> {
+/** Lee todas las hojas de un .xlsx, o un .csv/.txt como una sola hoja. */
+export async function leerArchivoTabla(archivo: File): Promise<HojaLeida[]> {
   const nombre = archivo.name.toLowerCase();
   if (nombre.endsWith(".csv") || nombre.endsWith(".txt")) {
-    return parsearCsv(await archivo.text());
+    return [{ nombre: archivo.name, filas: parsearCsv(await archivo.text()) }];
   }
   if (nombre.endsWith(".xls")) {
     throw new Error("El formato .xls (Excel 97-2003) no se puede leer. Guardalo como .xlsx o .csv y volvé a cargarlo.");
   }
-  if (!nombre.endsWith(".xlsx")) {
+  if (!nombre.endsWith(".xlsx") && !nombre.endsWith(".xlsm")) {
     throw new Error("El archivo tiene que ser .xlsx o .csv.");
   }
   const ExcelJS = (await import("exceljs")).default;
   const libro = new ExcelJS.Workbook();
   await libro.xlsx.load(await archivo.arrayBuffer());
-  const hoja = libro.worksheets[0];
-  if (!hoja) throw new Error("El Excel no tiene ninguna hoja.");
-  const filas: Celda[][] = [];
-  hoja.eachRow({ includeEmpty: true }, (fila, n) => {
-    const valores: Celda[] = [];
-    fila.eachCell({ includeEmpty: true }, (celda, col) => {
-      valores[col - 1] = valorCeldaExcel(celda.value);
+  if (libro.worksheets.length === 0) throw new Error("El Excel no tiene ninguna hoja.");
+  return libro.worksheets.map((hoja) => {
+    const filas: Celda[][] = [];
+    hoja.eachRow({ includeEmpty: true }, (fila, n) => {
+      const valores: Celda[] = [];
+      fila.eachCell({ includeEmpty: true }, (celda, col) => {
+        valores[col - 1] = valorCeldaExcel(celda.value);
+      });
+      filas[n - 1] = valores;
     });
-    filas[n - 1] = valores;
+    return { nombre: hoja.name, filas: Array.from(filas, (f) => f ?? []) };
   });
-  return Array.from(filas, (f) => f ?? []);
 }
 
 function valorCeldaExcel(v: unknown): Celda {
@@ -255,7 +333,9 @@ function valorCeldaExcel(v: unknown): Celda {
   if (v instanceof Date || typeof v === "number" || typeof v === "string" || typeof v === "boolean") return v;
   if (typeof v === "object") {
     const o = v as Record<string, unknown>;
-    if ("result" in o) return valorCeldaExcel(o.result); // fórmula: se usa el valor calculado
+    // Fórmula: se usa el valor calculado; sin valor guardado (p. ej. una fórmula que da ""), queda vacía.
+    if ("formula" in o || "sharedFormula" in o || "result" in o) return valorCeldaExcel(o.result);
+    if ("error" in o) return String(o.error);
     if ("richText" in o && Array.isArray(o.richText)) {
       return (o.richText as { text: string }[]).map((r) => r.text).join("");
     }

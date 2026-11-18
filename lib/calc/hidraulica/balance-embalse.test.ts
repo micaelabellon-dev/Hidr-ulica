@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   calcularBalance,
+  convertirCaudalSerie,
+  FACTORES_PERCENTIL_S_SE,
+  qambPorPercentil,
+  unidadCaudalDeEncabezado,
   caudalAVolumenHm3,
   CURVA_EJEMPLO,
   duracionPasoS,
@@ -20,8 +24,12 @@ const CUBO: PuntoCurva[] = [
 
 const base = {
   curva: CUBO,
-  caudalEcologicoM3s: 0,
+  unidadCaudal: "m3s" as const,
+  qambPorMesM3s: Array(12).fill(0),
+  modoLiberacion: "completo" as const,
   infiltracionM3s: 0,
+  coefEvaporacion: 1,
+  areaEnPaso: "medio" as const,
   volumenInicialHm3: 10,
   volumenMinimoHm3: 1,
   volumenMaximoHm3: 18,
@@ -47,42 +55,77 @@ describe("conversiones", () => {
 
 describe("calcularBalance", () => {
   it("cierra el balance de un paso a mano", () => {
-    // Enero (31 d): aporte 2 m³/s = 5,3568 hm³; extracción 1 m³/s = 2,6784; ecológico 0,5 = 1,3392;
-    // P 50 mm y E 150 mm sobre 100 ha = +0,05 y −0,15 hm³. ΔV = 5,3568+0,05−2,6784−1,3392−0,15 = 1,2392.
+    // Enero (31 d): aporte 2 m³/s = 5,3568 hm³; demanda 1 m³/s = 2,6784; Qamb 0,5 = 1,3392;
+    // P 50 mm y E 150 mm sobre 100 ha = +0,05 y −0,15 hm³. ΔV = 5,3568+0,05−0,15−1,3392−2,6784 = 1,2392.
     const r = calcularBalance({
       ...base,
-      caudalEcologicoM3s: 0.5,
+      qambPorMesM3s: Array(12).fill(0.5),
       paso: "mensual",
-      serie: [{ fecha: "2024-01-01", aporteM3s: 2, precipitacionMm: 50, evaporacionMm: 150, extraccionM3s: 1 }],
+      serie: [{ fecha: "2024-01-01", aporte: 2, precipitacionMm: 50, evaporacionMm: 150, extraccion: 1 }],
     });
     const p = r.pasos[0];
-    expect(p.deltaVHm3).toBeCloseTo(1.2392, 6);
     expect(p.volumenFinalHm3).toBeCloseTo(11.2392, 6);
     expect(p.cotaFinalM).toBeCloseTo(111.2392, 6);
+    expect(p.qambLiberadoHm3).toBeCloseTo(1.3392, 6);
     expect(p.vertidoHm3).toBe(0);
+    expect(r.cierreHm3).toBeCloseTo(0, 9);
   });
 
-  it("vierte el excedente por encima del máximo y registra el déficit bajo el mínimo", () => {
+  it("vierte por encima del máximo y no suministra por debajo del volumen muerto", () => {
     const r = calcularBalance({
       ...base,
       paso: "diario",
       serie: [
         // +17,28 hm³ en un día: 10 + 17,28 = 27,28 → vierte 9,28
-        { fecha: "2024-01-01", aporteM3s: 200, precipitacionMm: 0, evaporacionMm: 0, extraccionM3s: 0 },
-        // −25,92 hm³: 18 − 25,92 = −7,92 → déficit 8,92 con mínimo 1
-        { fecha: "2024-01-02", aporteM3s: 0, precipitacionMm: 0, evaporacionMm: 0, extraccionM3s: 300 },
+        { fecha: "2024-01-01", aporte: 200, precipitacionMm: 0, evaporacionMm: 0, extraccion: 0 },
+        // demanda 25,92 hm³ con 18 − 1 = 17 disponibles sobre el volumen muerto → déficit 8,92
+        { fecha: "2024-01-02", aporte: 0, precipitacionMm: 0, evaporacionMm: 0, extraccion: 300 },
       ],
     });
     expect(r.pasos[0].vertidoHm3).toBeCloseTo(9.28, 6);
-    expect(r.pasos[0].volumenFinalHm3).toBe(18);
+    expect(r.pasos[0].volumenFinalHm3).toBeCloseTo(18, 9);
+    expect(r.pasos[1].suministroHm3).toBeCloseTo(17, 6);
     expect(r.pasos[1].deficitHm3).toBeCloseTo(8.92, 6);
-    expect(r.pasos[1].volumenFinalHm3).toBe(1);
+    expect(r.pasos[1].volumenFinalHm3).toBeCloseTo(1, 9);
     expect(r.pasosConVertido).toBe(1);
     expect(r.pasosConDeficit).toBe(1);
-    expect(r.volumenMinimo.fecha).toBe("2024-01-02");
+    expect(r.garantiaTemporal).toBe(0.5);
   });
 
-  it("toma el área en el volumen medio del paso (cono: área crece con el volumen)", () => {
+  it("el caudal ambiental tiene prioridad y, en modo mín(aporte; Qamb), no supera al aporte", () => {
+    const serie = [{ fecha: "2024-01-01", aporte: 0.2, precipitacionMm: 0, evaporacionMm: 0, extraccion: 0 }];
+    const datos = { ...base, paso: "diario" as const, qambPorMesM3s: Array(12).fill(1), serie };
+    const minimo = calcularBalance({ ...datos, modoLiberacion: "minimo-aporte" }).pasos[0];
+    const completo = calcularBalance({ ...datos, modoLiberacion: "completo" }).pasos[0];
+    expect(minimo.qambLiberadoHm3).toBeCloseTo(0.01728, 9); // 0,2 m³/s × 1 día
+    expect(minimo.cumpleQamb).toBe(false);
+    expect(completo.qambLiberadoHm3).toBeCloseTo(0.0864, 9); // 1 m³/s × 1 día
+    expect(completo.cumpleQamb).toBe(true);
+  });
+
+  it("acepta la serie como volumen del paso (m³/mes)", () => {
+    const r = calcularBalance({
+      ...base,
+      unidadCaudal: "volumen",
+      paso: "mensual",
+      serie: [{ fecha: "2024-02-01", aporte: 1_000_000, precipitacionMm: 0, evaporacionMm: 0, extraccion: 250_000 }],
+    });
+    expect(r.pasos[0].aporteHm3).toBeCloseTo(1, 12);
+    expect(r.pasos[0].suministroHm3).toBeCloseTo(0.25, 12);
+  });
+
+  it("la evaporación no saca más agua que la que hay y aplica el coeficiente de tanque", () => {
+    const r = calcularBalance({
+      ...base,
+      coefEvaporacion: 0.7,
+      areaEnPaso: "inicio",
+      paso: "diario",
+      serie: [{ fecha: "2024-01-01", aporte: 0, precipitacionMm: 0, evaporacionMm: 100, extraccion: 0 }],
+    });
+    expect(r.pasos[0].evaporacionHm3).toBeCloseTo(100 * 0.7 * 100 * 1e-5, 12);
+  });
+
+  it("con área en el volumen medio, el área corresponde al volumen medio resultante", () => {
     const curva: PuntoCurva[] = [
       { cotaM: 0, areaHa: 0, volumenHm3: 0 },
       { cotaM: 10, areaHa: 1000, volumenHm3: 100 },
@@ -94,11 +137,46 @@ describe("calcularBalance", () => {
       volumenMinimoHm3: 0,
       volumenMaximoHm3: 100,
       paso: "diario",
-      serie: [{ fecha: "2024-01-01", aporteM3s: 100, precipitacionMm: 0, evaporacionMm: 10, extraccionM3s: 0 }],
+      serie: [{ fecha: "2024-01-01", aporte: 100, precipitacionMm: 0, evaporacionMm: 10, extraccion: 0 }],
     });
     const p = r.pasos[0];
-    // Consistencia del punto fijo: el área es la del volumen medio resultante.
     expect(p.areaHa).toBeCloseTo(((p.volumenInicialHm3 + p.volumenFinalHm3) / 2) * 10, 6);
+  });
+});
+
+describe("caudal ambiental por percentil", () => {
+  it("q(FF%) = q medio × factor × área, por cuatrimestre", () => {
+    const q = qambPorPercentil({
+      areaCuencaKm2: 73.1366,
+      qMedioLsKm2: [14.9, 15.7, 5.9],
+      factores: FACTORES_PERCENTIL_S_SE,
+      percentil: "Q80",
+      dicMarTodoElAnio: false,
+    });
+    expect(q[0] * 1000).toBeCloseTo(31.49993362, 6); // enero, DIC-MAR
+    expect(q[4] * 1000).toBeCloseTo(89.35829788, 6); // mayo, ABR-JUL
+    expect(q[8] * 1000).toBeCloseTo(181.42264996, 6); // setiembre, AGO-NOV
+    const q60 = qambPorPercentil({
+      areaCuencaKm2: 1,
+      qMedioLsKm2: [10, 10, 10],
+      factores: FACTORES_PERCENTIL_S_SE,
+      percentil: "Q60",
+      dicMarTodoElAnio: true,
+    });
+    expect(new Set(q60).size).toBe(1);
+    expect(q60[5] * 1000).toBeCloseTo(1.43, 9);
+  });
+});
+
+describe("unidades de la serie", () => {
+  it("lee la unidad del encabezado y convierte", () => {
+    expect(unidadCaudalDeEncabezado("aporte_m3_s")).toBe("m3s");
+    expect(unidadCaudalDeEncabezado("aporte_l_s")).toBe("ls");
+    expect(unidadCaudalDeEncabezado("aporte_cuenca_temez_m3_mes")).toBe("m3");
+    expect(unidadCaudalDeEncabezado("aporte")).toBeNull();
+    expect(convertirCaudalSerie(2, "m3s", "volumen", 86400)).toBe(172800);
+    expect(convertirCaudalSerie(86400, "m3", "m3s", 86400)).toBe(1);
+    expect(convertirCaudalSerie(500, "ls", "m3s", 3600)).toBe(0.5);
   });
 });
 

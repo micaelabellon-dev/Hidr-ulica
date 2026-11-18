@@ -1,29 +1,36 @@
 import { diasDelMes, fechaDeCelda, numeroDeCelda, type EspecColumna } from "@/lib/calculadoras/tablas";
 
 /**
- * Balance hídrico de un embalse por continuidad, paso a paso:
+ * Balance hídrico de un embalse, paso a paso, con reglas de operación:
  *
- *   V(t+1) = V(t) + Entradas − Salidas
- *   Entradas = Qaporte·Δt + P·A
- *   Salidas  = Qextracción·Δt + Qecológico·Δt + Qinfiltración·Δt + E·A
+ *   W = V(t) + Aporte + Lluvia − Evaporación − Infiltración     agua disponible
+ *   Qamb liberado = mín(Qamb objetivo; W)                       1.º el caudal ambiental
+ *   Suministro    = máx(0; mín(Demanda; W − Qamb lib − Vmín))   2.º la demanda, sin bajar del volumen muerto
+ *   Vertido       = máx(0; W − Qamb lib − Suministro − Vmáx)    3.º lo que no entra, vierte
+ *   V(t+1)        = W − Qamb lib − Suministro − Vertido
+ *   Déficit       = Demanda − Suministro
  *
- * Δt es la duración real del paso: los días de cada mes en paso mensual, o un
- * día en paso diario. A es el área del espejo de agua. Se toma en el volumen
- * medio del paso, (V(t) + V(t+1))/2, porque el área cambia durante el paso;
- * como V(t+1) depende de A, se resuelve por punto fijo (converge en 2 o 3
- * vueltas, porque P y E son chicos frente al volumen almacenado).
+ * Lluvia = P·A y Evaporación = mín(E·k·A; lo que hay), con A el área del
+ * espejo y k el coeficiente de tanque. A se toma, a elección, en el volumen
+ * del inicio del paso (como una planilla mes a mes) o en el volumen medio del
+ * paso, (V(t) + V(t+1))/2, resuelto por punto fijo porque V(t+1) depende de A.
  *
- * Después de cerrar el balance:
- *   - si V(t+1) > Vmáx, el excedente vierte y V(t+1) = Vmáx;
- *   - si V(t+1) < Vmín, falta agua para cubrir las salidas: la diferencia es
- *     el déficit (demanda no atendida) y V(t+1) = Vmín.
+ * Caudal ambiental: constante, o por percentil de permanencia (Q60, Q70, Q80,
+ * Q90) con la regionalización de Dinagua: q(FF%) = q medio del cuatrimestre ×
+ * factor de la subregión, por el área de la cuenca. El objetivo es el Qamb
+ * completo, o mín(aporte; Qamb) para no liberar más de lo que entra.
  *
- * Unidades: caudales en m³/s, láminas en mm, áreas en ha, volúmenes en hm³.
- *   Q·Δt [m³]       → /10⁶ → hm³
- *   lámina·A [mm·ha] = 10 m³ por mm·ha → ×10⁻⁵ → hm³
+ * Unidades internas: caudales en m³/s, láminas en mm, áreas en ha, volúmenes
+ * en hm³. La serie puede traer caudales en m³/s o como volumen del paso.
+ *   Q·Δt [m³] → /10⁶ → hm³;   lámina·A [mm·ha] = 10 m³ → ×10⁻⁵ → hm³
  */
 
 export type PasoTiempo = "mensual" | "diario";
+export type AreaEnPaso = "inicio" | "medio";
+/** "volumen": la serie trae m³ en el paso (m³/mes o m³/día) en vez de m³/s. */
+export type UnidadCaudalSerie = "m3s" | "volumen";
+/** "minimo-aporte": se libera mín(aporte; Qamb). "completo": se libera el Qamb aunque entre menos. */
+export type ModoLiberacion = "minimo-aporte" | "completo";
 
 export interface PuntoCurva {
   cotaM: number;
@@ -34,20 +41,28 @@ export interface PuntoCurva {
 export interface RegistroSerie {
   /** ISO yyyy-mm-dd (día 01 en paso mensual). */
   fecha: string;
-  aporteM3s: number;
+  /** m³/s, o m³ en el paso según `unidadCaudal`. */
+  aporte: number;
   /** Lámina precipitada en el paso, en mm (del mes o del día). */
   precipitacionMm: number;
-  /** Lámina evaporada en el paso, en mm (del mes o del día). */
+  /** Lámina evaporada en el paso (tanque), en mm. */
   evaporacionMm: number;
-  extraccionM3s: number;
+  /** Demanda a suministrar: m³/s, o m³ en el paso según `unidadCaudal`. */
+  extraccion: number;
 }
 
 export interface DatosBalance {
   paso: PasoTiempo;
   serie: RegistroSerie[];
+  unidadCaudal: UnidadCaudalSerie;
   curva: PuntoCurva[];
-  caudalEcologicoM3s: number;
+  /** Caudal ambiental exigido por mes del año (índice 0 = enero), en m³/s. */
+  qambPorMesM3s: readonly number[];
+  modoLiberacion: ModoLiberacion;
   infiltracionM3s: number;
+  /** Coeficiente que pasa la evaporación de tanque a evaporación del lago. */
+  coefEvaporacion: number;
+  areaEnPaso: AreaEnPaso;
   volumenInicialHm3: number;
   volumenMinimoHm3: number;
   volumenMaximoHm3: number;
@@ -59,24 +74,26 @@ export interface PasoBalance {
   duracionS: number;
   volumenInicialHm3: number;
   cotaInicialM: number;
-  /** Área del espejo en el volumen medio del paso. */
   areaHa: number;
-  volumenMedioHm3: number;
+  /** Volumen con el que se interpoló el área (inicial o medio). */
+  volumenAreaHm3: number;
   aporteHm3: number;
   precipitacionHm3: number;
   evaporacionHm3: number;
-  extraccionHm3: number;
-  ecologicoHm3: number;
   infiltracionHm3: number;
-  entradasHm3: number;
-  salidasHm3: number;
-  deltaVHm3: number;
-  /** V(t) + ΔV antes de aplicar los límites de vertedero y volumen muerto. */
-  volumenSinLimitarHm3: number;
+  disponibleHm3: number;
+  qambExigidoHm3: number;
+  qambObjetivoHm3: number;
+  qambLiberadoHm3: number;
+  demandaHm3: number;
+  suministroHm3: number;
   vertidoHm3: number;
   deficitHm3: number;
+  salidaAguasAbajoHm3: number;
   volumenFinalHm3: number;
   cotaFinalM: number;
+  cumpleDemanda: boolean;
+  cumpleQamb: boolean;
   iteraciones: number;
 }
 
@@ -88,10 +105,22 @@ export interface ResultadoBalance {
   cotaMaximaM: number;
   pasosConDeficit: number;
   pasosConVertido: number;
+  rachaMaximaFalla: number;
+  deficitMaximoHm3: number;
   deficitTotalHm3: number;
   vertidoTotalHm3: number;
-  entradasTotalesHm3: number;
-  salidasTotalesHm3: number;
+  /** Fracción de pasos con la demanda 100 % cubierta. */
+  garantiaTemporal: number;
+  /** Volumen suministrado / volumen demandado. */
+  garantiaVolumetrica: number;
+  /** Fracción de pasos con salida aguas abajo (Qamb liberado + vertido) ≥ Qamb exigido. */
+  cumplimientoQamb: number;
+  totales: Record<
+    "aporte" | "precipitacion" | "evaporacion" | "infiltracion" | "qambLiberado" | "demanda" | "suministro" | "vertido",
+    number
+  >;
+  /** V0 + entradas − salidas − V final: tiene que dar 0. */
+  cierreHm3: number;
 }
 
 /** Conversión m³/s durante Δt segundos a hm³. */
@@ -128,50 +157,116 @@ export function interpolarCurva(
 
 export const cotaDeVolumen = (curva: readonly PuntoCurva[], v: number) => interpolarCurva(curva, "volumenHm3", v, "cotaM");
 export const areaDeVolumen = (curva: readonly PuntoCurva[], v: number) => interpolarCurva(curva, "volumenHm3", v, "areaHa");
+export const volumenDeCota = (curva: readonly PuntoCurva[], z: number) => interpolarCurva(curva, "cotaM", z, "volumenHm3");
+
+// ── Caudal ambiental por percentil ─────────────────────────────────────────
+
+export const CUATRIMESTRES = ["ABR-JUL", "AGO-NOV", "DIC-MAR"] as const;
+export const PERCENTILES = ["Q60", "Q70", "Q80", "Q90"] as const;
+export type Percentil = (typeof PERCENTILES)[number];
+
+/** Cuatrimestre de cada mes (0 = enero): DIC-MAR = 2, ABR-JUL = 0, AGO-NOV = 1. */
+export function cuatrimestreDeMes(mes0: number): 0 | 1 | 2 {
+  const m = mes0 + 1;
+  if (m >= 12 || m <= 3) return 2;
+  return m <= 7 ? 0 : 1;
+}
+
+export interface DatosQambPercentil {
+  areaCuencaKm2: number;
+  /** q medio de cada cuatrimestre (ABR-JUL, AGO-NOV, DIC-MAR), en L/s/km². */
+  qMedioLsKm2: readonly [number, number, number];
+  /** Factor q(FF%)/q por percentil (Q60…Q90) y cuatrimestre. */
+  factores: Readonly<Record<Percentil, readonly [number, number, number]>>;
+  percentil: Percentil;
+  /** Usar el valor de DIC-MAR (estiaje) en los doce meses. */
+  dicMarTodoElAnio: boolean;
+}
+
+/** Qamb exigido de cada mes del año, en m³/s: q medio × factor × área / 1000. */
+export function qambPorPercentil(d: DatosQambPercentil): number[] {
+  return Array.from({ length: 12 }, (_, mes0) => {
+    const c = d.dicMarTodoElAnio ? 2 : cuatrimestreDeMes(mes0);
+    return (d.qMedioLsKm2[c] * d.factores[d.percentil][c] * d.areaCuencaKm2) / 1000;
+  });
+}
+
+/**
+ * Factores q(FF%)/q de la Regionalización de estadísticas de caudales
+ * (Dinagua, 2025), subregión Sur / Sureste. Son un valor de partida: para
+ * otra subregión hay que cargar los de su columna en las figuras 12 a 14.
+ */
+export const FACTORES_PERCENTIL_S_SE: Record<Percentil, [number, number, number]> = {
+  Q60: [0.199, 0.294, 0.143],
+  Q70: [0.131, 0.221, 0.101],
+  Q80: [0.082, 0.158, 0.073],
+  Q90: [0.045, 0.098, 0.048],
+};
+
+// ── Balance ────────────────────────────────────────────────────────────────
+
+/** Tolerancia para contar un paso como cubierto: medio metro cúbico. */
+const TOL_HM3 = 0.5e-6;
 
 export function calcularBalance(datos: DatosBalance): ResultadoBalance {
   const { curva, volumenMinimoHm3: vMin, volumenMaximoHm3: vMax } = datos;
   const pasos: PasoBalance[] = [];
   let v = datos.volumenInicialHm3;
+  let racha = 0;
+  let rachaMaximaFalla = 0;
 
   datos.serie.forEach((reg, indice) => {
     const duracionS = duracionPasoS(reg.fecha, datos.paso);
-    const aporteHm3 = caudalAVolumenHm3(reg.aporteM3s, duracionS);
-    const extraccionHm3 = caudalAVolumenHm3(reg.extraccionM3s, duracionS);
-    const ecologicoHm3 = caudalAVolumenHm3(datos.caudalEcologicoM3s, duracionS);
-    const infiltracionHm3 = caudalAVolumenHm3(datos.infiltracionM3s, duracionS);
+    const aVolumen = (q: number) => (datos.unidadCaudal === "m3s" ? caudalAVolumenHm3(q, duracionS) : q / 1e6);
+    const aporteHm3 = aVolumen(reg.aporte);
+    const demandaHm3 = aVolumen(reg.extraccion);
+    const mes0 = Number(reg.fecha.slice(5, 7)) - 1;
+    const qambExigidoHm3 = caudalAVolumenHm3(datos.qambPorMesM3s[mes0] ?? 0, duracionS);
+    const qambObjetivoHm3 =
+      datos.modoLiberacion === "minimo-aporte" ? Math.min(qambExigidoHm3, aporteHm3) : qambExigidoHm3;
 
+    const operar = (areaHa: number) => {
+      const precipitacionHm3 = laminaAVolumenHm3(reg.precipitacionMm, areaHa);
+      const bruto = v + aporteHm3 + precipitacionHm3;
+      const evaporacionHm3 = Math.min(laminaAVolumenHm3(reg.evaporacionMm * datos.coefEvaporacion, areaHa), bruto);
+      const infiltracionHm3 = Math.min(caudalAVolumenHm3(datos.infiltracionM3s, duracionS), bruto - evaporacionHm3);
+      const disponibleHm3 = bruto - evaporacionHm3 - infiltracionHm3;
+      const qambLiberadoHm3 = Math.min(qambObjetivoHm3, disponibleHm3);
+      const suministroHm3 = Math.max(0, Math.min(demandaHm3, disponibleHm3 - qambLiberadoHm3 - vMin));
+      const vertidoHm3 = Math.max(0, disponibleHm3 - qambLiberadoHm3 - suministroHm3 - vMax);
+      const volumenFinalHm3 = disponibleHm3 - qambLiberadoHm3 - suministroHm3 - vertidoHm3;
+      return {
+        precipitacionHm3,
+        evaporacionHm3,
+        infiltracionHm3,
+        disponibleHm3,
+        qambLiberadoHm3,
+        suministroHm3,
+        vertidoHm3,
+        volumenFinalHm3,
+      };
+    };
+
+    let volumenAreaHm3 = v;
     let areaHa = areaDeVolumen(curva, v);
-    let volumenMedioHm3 = v;
-    let precipitacionHm3 = 0;
-    let evaporacionHm3 = 0;
-    let deltaVHm3 = 0;
-    let iteraciones = 0;
-    for (; iteraciones < 50; iteraciones++) {
-      precipitacionHm3 = laminaAVolumenHm3(reg.precipitacionMm, areaHa);
-      evaporacionHm3 = laminaAVolumenHm3(reg.evaporacionMm, areaHa);
-      deltaVHm3 =
-        aporteHm3 + precipitacionHm3 - extraccionHm3 - ecologicoHm3 - infiltracionHm3 - evaporacionHm3;
-      const vFinAcotado = Math.min(vMax, Math.max(vMin, v + deltaVHm3));
-      volumenMedioHm3 = (v + vFinAcotado) / 2;
-      const nuevaArea = areaDeVolumen(curva, volumenMedioHm3);
-      if (Math.abs(nuevaArea - areaHa) < 1e-9 * Math.max(1, areaHa)) {
-        areaHa = nuevaArea;
-        iteraciones++;
-        break;
+    let r = operar(areaHa);
+    let iteraciones = 1;
+    if (datos.areaEnPaso === "medio") {
+      for (; iteraciones < 50; iteraciones++) {
+        volumenAreaHm3 = (v + r.volumenFinalHm3) / 2;
+        const nueva = areaDeVolumen(curva, volumenAreaHm3);
+        const cambio = Math.abs(nueva - areaHa);
+        areaHa = nueva;
+        r = operar(areaHa);
+        if (cambio < 1e-9 * Math.max(1, areaHa)) break;
       }
-      areaHa = nuevaArea;
     }
-    precipitacionHm3 = laminaAVolumenHm3(reg.precipitacionMm, areaHa);
-    evaporacionHm3 = laminaAVolumenHm3(reg.evaporacionMm, areaHa);
-    const entradasHm3 = aporteHm3 + precipitacionHm3;
-    const salidasHm3 = extraccionHm3 + ecologicoHm3 + infiltracionHm3 + evaporacionHm3;
-    deltaVHm3 = entradasHm3 - salidasHm3;
 
-    const volumenSinLimitarHm3 = v + deltaVHm3;
-    const vertidoHm3 = Math.max(0, volumenSinLimitarHm3 - vMax);
-    const deficitHm3 = Math.max(0, vMin - volumenSinLimitarHm3);
-    const volumenFinalHm3 = Math.min(vMax, Math.max(vMin, volumenSinLimitarHm3));
+    const deficitHm3 = Math.max(0, demandaHm3 - r.suministroHm3);
+    const salidaAguasAbajoHm3 = r.qambLiberadoHm3 + r.vertidoHm3;
+    const cumpleDemanda = r.suministroHm3 >= demandaHm3 - TOL_HM3;
+    racha = cumpleDemanda ? 0 : racha + 1;
+    rachaMaximaFalla = Math.max(rachaMaximaFalla, racha);
 
     pasos.push({
       indice,
@@ -180,24 +275,20 @@ export function calcularBalance(datos: DatosBalance): ResultadoBalance {
       volumenInicialHm3: v,
       cotaInicialM: cotaDeVolumen(curva, v),
       areaHa,
-      volumenMedioHm3,
+      volumenAreaHm3,
       aporteHm3,
-      precipitacionHm3,
-      evaporacionHm3,
-      extraccionHm3,
-      ecologicoHm3,
-      infiltracionHm3,
-      entradasHm3,
-      salidasHm3,
-      deltaVHm3,
-      volumenSinLimitarHm3,
-      vertidoHm3,
+      ...r,
+      qambExigidoHm3,
+      qambObjetivoHm3,
+      demandaHm3,
       deficitHm3,
-      volumenFinalHm3,
-      cotaFinalM: cotaDeVolumen(curva, volumenFinalHm3),
+      salidaAguasAbajoHm3,
+      cotaFinalM: cotaDeVolumen(curva, r.volumenFinalHm3),
+      cumpleDemanda,
+      cumpleQamb: salidaAguasAbajoHm3 >= qambExigidoHm3 - TOL_HM3,
       iteraciones,
     });
-    v = volumenFinalHm3;
+    v = r.volumenFinalHm3;
   });
 
   let iMin = 0;
@@ -207,8 +298,18 @@ export function calcularBalance(datos: DatosBalance): ResultadoBalance {
     if (p.volumenFinalHm3 > pasos[iMax].volumenFinalHm3) iMax = i;
   });
   const suma = (f: (p: PasoBalance) => number) => pasos.reduce((s, p) => s + f(p), 0);
-  // Umbral para no contar como vertido o déficit un residuo de redondeo.
-  const UMBRAL = 1e-9;
+  const n = pasos.length || 1;
+  const totales = {
+    aporte: suma((p) => p.aporteHm3),
+    precipitacion: suma((p) => p.precipitacionHm3),
+    evaporacion: suma((p) => p.evaporacionHm3),
+    infiltracion: suma((p) => p.infiltracionHm3),
+    qambLiberado: suma((p) => p.qambLiberadoHm3),
+    demanda: suma((p) => p.demandaHm3),
+    suministro: suma((p) => p.suministroHm3),
+    vertido: suma((p) => p.vertidoHm3),
+  };
+  const vFinal = pasos.length ? pasos[pasos.length - 1].volumenFinalHm3 : datos.volumenInicialHm3;
 
   return {
     pasos,
@@ -216,23 +317,73 @@ export function calcularBalance(datos: DatosBalance): ResultadoBalance {
     volumenMaximo: { valorHm3: pasos[iMax]?.volumenFinalHm3 ?? NaN, fecha: pasos[iMax]?.fecha ?? "" },
     cotaMinimaM: pasos[iMin]?.cotaFinalM ?? NaN,
     cotaMaximaM: pasos[iMax]?.cotaFinalM ?? NaN,
-    pasosConDeficit: pasos.filter((p) => p.deficitHm3 > UMBRAL).length,
-    pasosConVertido: pasos.filter((p) => p.vertidoHm3 > UMBRAL).length,
+    pasosConDeficit: pasos.filter((p) => !p.cumpleDemanda).length,
+    pasosConVertido: pasos.filter((p) => p.vertidoHm3 > TOL_HM3).length,
+    rachaMaximaFalla,
+    deficitMaximoHm3: Math.max(0, ...pasos.map((p) => p.deficitHm3)),
     deficitTotalHm3: suma((p) => p.deficitHm3),
-    vertidoTotalHm3: suma((p) => p.vertidoHm3),
-    entradasTotalesHm3: suma((p) => p.entradasHm3),
-    salidasTotalesHm3: suma((p) => p.salidasHm3),
+    vertidoTotalHm3: totales.vertido,
+    garantiaTemporal: pasos.filter((p) => p.cumpleDemanda).length / n,
+    garantiaVolumetrica: totales.demanda > 0 ? totales.suministro / totales.demanda : 1,
+    cumplimientoQamb: pasos.filter((p) => p.cumpleQamb).length / n,
+    totales,
+    cierreHm3:
+      datos.volumenInicialHm3 +
+      totales.aporte +
+      totales.precipitacion -
+      totales.evaporacion -
+      totales.infiltracion -
+      totales.qambLiberado -
+      totales.suministro -
+      totales.vertido -
+      vFinal,
   };
 }
 
 // ── Columnas y validación de las tablas de entrada ─────────────────────────
 
+export type UnidadCaudalArchivo = "m3s" | "ls" | "m3" | "hm3";
+
+/**
+ * Unidad que declara el encabezado de una columna de caudal, si declara
+ * alguna: "aporte_m3s" → m³/s, "aporte (L/s)" → L/s, "aporte (m³/mes)" → m³
+ * del paso, "aporte_hm3" → hm³ del paso.
+ */
+export function unidadCaudalDeEncabezado(normalizado: string): UnidadCaudalArchivo | null {
+  if (/(^|_)m3_?s(eg)?($|_)/.test(normalizado)) return "m3s";
+  if (/(^|_)l_?s($|_)/.test(normalizado)) return "ls";
+  if (/(^|_)hm3($|_)/.test(normalizado)) return "hm3";
+  if (/(^|_)m3($|_)/.test(normalizado)) return "m3";
+  return null;
+}
+
+/** Pasa un caudal leído en `de` a la unidad de la serie (m³/s o m³ del paso). */
+export function convertirCaudalSerie(
+  valor: number,
+  de: UnidadCaudalArchivo,
+  a: UnidadCaudalSerie,
+  duracionS: number
+): number {
+  const m3 = de === "m3s" ? valor * duracionS : de === "ls" ? (valor / 1000) * duracionS : de === "hm3" ? valor * 1e6 : valor;
+  return a === "m3s" ? m3 / duracionS : m3;
+}
+
+/** Unidad de volumen o área que declara un encabezado de la curva. */
+export function unidadCurvaDeEncabezado(normalizado: string): "hm3" | "m3" | "ha" | "m2" | "km2" | null {
+  if (/(^|_)hm3($|_)/.test(normalizado)) return "hm3";
+  if (/(^|_)m3($|_)/.test(normalizado)) return "m3";
+  if (/(^|_)km2($|_)/.test(normalizado)) return "km2";
+  if (/(^|_)m2($|_)/.test(normalizado)) return "m2";
+  if (/(^|_)ha($|_)/.test(normalizado)) return "ha";
+  return null;
+}
+
 export const COLUMNAS_SERIE: readonly EspecColumna[] = [
   { clave: "fecha", nombre: "fecha", alias: ["fechas", "date", "mes", "dia", "periodo"], obligatoria: true, tipo: "fecha" },
   {
-    clave: "aporteM3s",
-    nombre: "aporte_m3s",
-    alias: ["aporte", "aportes", "caudal", "caudal_medio", "q", "q_aporte", "afluente", "afluencia", "ingreso"],
+    clave: "aporte",
+    nombre: "aporte",
+    alias: ["aportes", "caudal", "caudal_medio", "q", "q_aporte", "afluente", "afluencia", "ingreso"],
     obligatoria: true,
     tipo: "numero",
   },
@@ -251,9 +402,9 @@ export const COLUMNAS_SERIE: readonly EspecColumna[] = [
     tipo: "numero",
   },
   {
-    clave: "extraccionM3s",
-    nombre: "extraccion_m3s",
-    alias: ["extraccion", "extracciones", "demanda", "toma", "q_extraccion", "consumo"],
+    clave: "extraccion",
+    nombre: "extraccion",
+    alias: ["extracciones", "demanda", "suministro", "toma", "q_extraccion", "consumo"],
     obligatoria: true,
     tipo: "numero",
   },
@@ -280,10 +431,10 @@ function listaConTope(errores: string[]): string[] {
 }
 
 const NOMBRE_CAMPO_SERIE: Record<string, string> = {
-  aporteM3s: "aporte",
+  aporte: "aporte",
   precipitacionMm: "precipitación",
   evaporacionMm: "evaporación",
-  extraccionM3s: "extracción",
+  extraccion: "extracción",
 };
 
 function sumarPaso(fecha: { anio: number; mes: number; dia: number }, paso: PasoTiempo) {
@@ -342,10 +493,10 @@ export function validarSerie(
 
     serie.push({
       fecha: fecha ? iso(fecha) : "",
-      aporteM3s: valores.aporteM3s,
+      aporte: valores.aporte,
       precipitacionMm: valores.precipitacionMm,
       evaporacionMm: valores.evaporacionMm,
-      extraccionM3s: valores.extraccionM3s,
+      extraccion: valores.extraccion,
     });
   });
 
