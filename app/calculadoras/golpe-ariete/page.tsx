@@ -7,6 +7,7 @@ import { CampoNumerico } from "@/components/calculadoras/comun/CampoNumerico";
 import { CampoSeleccion } from "@/components/calculadoras/comun/CampoSeleccion";
 import { PanelFormulas } from "@/components/calculadoras/comun/PanelFormulas";
 import { PanelMetricas } from "@/components/calculadoras/comun/PanelMetricas";
+import { DiagramaGolpe } from "@/components/calculadoras/croquis/DiagramaGolpe";
 import { GraficoLineas } from "@/components/calculadoras/graficos/GraficoLineas";
 import { calcularGolpe, MATERIALES_GOLPE, sobrepresionEnX } from "@/lib/calc/hidraulica/golpe-ariete";
 import { aNumero, fmt } from "@/lib/calculadoras/formato";
@@ -76,7 +77,7 @@ export default function GolpeArietePage() {
       </div>
 
       <div className="grid gap-x-8 gap-y-10 lg:grid-cols-2">
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6">
           <div className="space-y-4">
             <p className="spec-label">Impulsión</p>
             <CampoSeleccion id="material" etiqueta="Material" valor={material.nombre} opciones={MATERIALES_GOLPE.map((m) => m.nombre)} onChange={cambiarMaterial} />
@@ -119,7 +120,7 @@ export default function GolpeArietePage() {
           </div>
         </div>
 
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6">
           <ListaErrores titulo="Revisá los datos" errores={errores} />
           {!r ? (
             <div className="rounded-md bg-muted/50 p-4 text-sm text-muted-foreground">Completá los datos de la impulsión.</div>
@@ -148,6 +149,21 @@ export default function GolpeArietePage() {
                 ]}
               />
               <ListaAvisos avisos={r.avisos} />
+
+              <DiagramaGolpe
+                longitudM={L}
+                alturaManometricaM={datos.alturaManometricaM}
+                alturaEstaticaM={hEstatica}
+                deltaEn={(x) => sobrepresionEnX(r, L, x)}
+                sobrepresionM={r.sobrepresionM}
+                longitudCriticaM={r.longitudCriticaM}
+                regimen={r.regimen}
+                celeridadMs={r.celeridadMs}
+                presionNominalM={datos.presionNominalM}
+                diametroExteriorMm={datos.diametroExteriorMm}
+                espesorMm={datos.espesorMm}
+                diametroInteriorMm={r.diametroInteriorMm}
+              />
 
               <GraficoLineas
                 titulo="Envolvente de alturas piezométricas a lo largo de la impulsión"
