@@ -133,7 +133,7 @@ export default function AlcancePage() {
             ajustarla en planta midiendo el residual.
           </p>
           <p>
-            <strong className="text-foreground">Procesos de tratamiento.</strong> Mezcla rápida,
+            <strong className="text-foreground">Potabilización, sedimentador y DAF.</strong> Mezcla rápida,
             floculación, sedimentación y DAF con expresiones de diseño de bibliografía (Arboleda,
             CEPIS, Metcalf & Eddy, Yao). Los parámetros por defecto son valores de partida: el G·Tⁿ = K
             sale de ensayos de jarras y la relación aire/sólidos del DAF, de ensayos de flotación.

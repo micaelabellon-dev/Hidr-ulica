@@ -28,7 +28,7 @@ export interface CalculadoraMeta {
   nombre: string;
   descripcion: string;
   ruta: string;
-  categoria: "Flujo a presión" | "Estaciones de bombeo" | "Flujo a superficie libre" | "Hidrología" | "Calidad de agua" | "Tratamiento de efluentes" | "Procesos de tratamiento" | "Calidad de aire";
+  categoria: "Flujo a presión" | "Estaciones de bombeo" | "Flujo a superficie libre" | "Hidrología" | "Calidad de agua" | "Tratamiento de efluentes" | "Potabilización" | "Calidad de aire";
   /** Métodos o fórmulas entre los que se puede elegir, para que la tarjeta los muestre como "norma". */
   metodosDisponibles: readonly string[];
 }
@@ -107,6 +107,22 @@ export const registroCalculadoras: CalculadoraMeta[] = [
     metodosDisponibles: ["Emerson et al. (1975)"],
   },
   {
+    id: "sedimentador",
+    nombre: "Sedimentador",
+    descripcion: "Decantador convencional (carga superficial, retención, vertedero, remoción primaria) o laminar de placas (Yao), y velocidad de Stokes.",
+    ruta: "/calculadoras/sedimentador",
+    categoria: "Tratamiento de efluentes",
+    metodosDisponibles: ["Convencional", "Laminar (placas)"],
+  },
+  {
+    id: "daf",
+    nombre: "Flotación por aire disuelto (DAF)",
+    descripcion: "Recirculación presurizada por la relación aire/sólidos, área por carga hidráulica, carga de sólidos y aire necesario.",
+    ruta: "/calculadoras/daf",
+    categoria: "Tratamiento de efluentes",
+    metodosDisponibles: ["Relación A/S"],
+  },
+  {
     id: "laguna-facultativa",
     nombre: "Laguna facultativa",
     descripcion:
@@ -138,7 +154,7 @@ export const registroCalculadoras: CalculadoraMeta[] = [
     nombre: "Mezcla rápida (coagulación)",
     descripcion: "Gradiente y tiempo de mezcla con placa orificio o canaleta Parshall con resalto hidráulico, y comparación de medidas de Parshall.",
     ruta: "/calculadoras/mezcla-rapida",
-    categoria: "Procesos de tratamiento",
+    categoria: "Potabilización",
     metodosDisponibles: ["Placa orificio", "Canaleta Parshall"],
   },
   {
@@ -146,24 +162,8 @@ export const registroCalculadoras: CalculadoraMeta[] = [
     nombre: "Floculación",
     descripcion: "Ajuste G·Tⁿ = K de ensayos de jarras y diseño de floculadores mecánicos de paletas o hidráulicos de tabiques con flujo horizontal o vertical.",
     ruta: "/calculadoras/floculacion",
-    categoria: "Procesos de tratamiento",
+    categoria: "Potabilización",
     metodosDisponibles: ["Paletas (mecánico)", "Tabiques flujo horizontal", "Tabiques flujo vertical"],
-  },
-  {
-    id: "sedimentador",
-    nombre: "Sedimentador",
-    descripcion: "Decantador convencional (carga superficial, retención, vertedero, remoción primaria) o laminar de placas (Yao), y velocidad de Stokes.",
-    ruta: "/calculadoras/sedimentador",
-    categoria: "Procesos de tratamiento",
-    metodosDisponibles: ["Convencional", "Laminar (placas)"],
-  },
-  {
-    id: "daf",
-    nombre: "Flotación por aire disuelto (DAF)",
-    descripcion: "Recirculación presurizada por la relación aire/sólidos, área por carga hidráulica, carga de sólidos y aire necesario.",
-    ruta: "/calculadoras/daf",
-    categoria: "Procesos de tratamiento",
-    metodosDisponibles: ["Relación A/S"],
   },
   {
     id: "dispersion-chimenea",
