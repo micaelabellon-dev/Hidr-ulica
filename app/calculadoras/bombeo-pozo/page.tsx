@@ -11,6 +11,7 @@ import { CampoSeleccion } from "@/components/calculadoras/comun/CampoSeleccion";
 import { PanelFormulas } from "@/components/calculadoras/comun/PanelFormulas";
 import { PanelMetricas } from "@/components/calculadoras/comun/PanelMetricas";
 import { filasDeErrores, TablaEditable } from "@/components/calculadoras/comun/TablaEditable";
+import { DiagramaBombeo } from "@/components/calculadoras/croquis/DiagramaBombeo";
 import { GraficoLineas, type SerieGrafico } from "@/components/calculadoras/graficos/GraficoLineas";
 import { diametroInteriorMm, EditorTramo, sumaKTramo, type TramoUI } from "@/components/calculadoras/bombeo/EditorTramo";
 import {
@@ -705,6 +706,28 @@ function Resultados({
                 },
               ]),
         ]}
+      />
+
+      <DiagramaBombeo
+        tipo={datos.tipo}
+        bombasOperacion={n}
+        bombasInstaladas={datos.bombasInstaladas}
+        caudalTotalLs={datos.caudalDisenoLs}
+        caudalBombaLs={resultado.caudalBombaLs}
+        cotaNivelMinimoM={datos.cotaNivelMinimoM}
+        cotaNivelMaximoM={datos.cotaNivelMaximoM}
+        cotaDescargaM={datos.cotaDescargaM}
+        presionDescargaM={datos.presionDescargaM}
+        cotaEjeBombaM={datos.cotaEjeBombaM}
+        cotaAdmisionM={datos.cotaAdmisionM}
+        tramos={datos.impulsion.map((t, i) => ({
+          nombre: t.nombre,
+          longitudM: t.longitudM,
+          diametroMm: t.diametroMm,
+          perdidaM: alturas.minimo.perdidas.impulsion[i]?.totalM ?? 0,
+        }))}
+        perdidaSuccionM={alturas.minimo.perdidas.succion?.totalM ?? 0}
+        alturaTotalM={alturas.minimo.alturaTotalM}
       />
 
       <ListaAvisos avisos={resultado.avisos} />
