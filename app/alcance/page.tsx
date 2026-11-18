@@ -105,6 +105,15 @@ export default function AlcancePage() {
             sensibilidad a la demanda y la demanda firme suponen una demanda constante en todos los
             pasos.
           </p>
+          <p>
+            <strong className="text-foreground">Período de retorno de una tormenta.</strong> Las láminas
+            máximas por duración salen de ventanas móviles sobre el hietograma a intervalo fijo, sin
+            corregir el efecto del intervalo de registro. El TR se obtiene invirtiendo la IDF elegida:
+            con Rodríguez Fontal (1980), la del P(3,10) del punto y, si se carga un área, la corrección
+            areal CA; con una tabla, interpolando en la variable de Gumbel y en log-log entre
+            duraciones; con máximos anuales, un ajuste de Gumbel por momentos, poco confiable para TR
+            mayores que el doble del registro.
+          </p>
         </div>
       </section>
 

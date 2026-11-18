@@ -10,14 +10,15 @@ export type IdCalculadora =
   | "bombeo-pozo"
   | "pozo-humedo"
   | "canales-manning"
-  | "balance-embalse";
+  | "balance-embalse"
+  | "tormenta-tr";
 
 export interface CalculadoraMeta {
   id: IdCalculadora;
   nombre: string;
   descripcion: string;
   ruta: string;
-  categoria: "Flujo a presión" | "Estaciones de bombeo" | "Flujo a superficie libre" | "Hidrología y almacenamiento";
+  categoria: "Flujo a presión" | "Estaciones de bombeo" | "Flujo a superficie libre" | "Hidrología";
   /** Métodos o fórmulas entre los que se puede elegir, para que la tarjeta los muestre como "norma". */
   metodosDisponibles: readonly string[];
 }
@@ -74,8 +75,17 @@ export const registroCalculadoras: CalculadoraMeta[] = [
     descripcion:
       "Operación de un embalse paso a paso, mensual o diario: volumen, cota, vertidos y déficit a partir de aportes, lluvia, evaporación, extracciones y la curva cota-área-volumen.",
     ruta: "/calculadoras/balance-embalse",
-    categoria: "Hidrología y almacenamiento",
+    categoria: "Hidrología",
     metodosDisponibles: ["Paso mensual", "Paso diario"],
+  },
+  {
+    id: "tormenta-tr",
+    nombre: "Período de retorno de una tormenta",
+    descripcion:
+      "TR de una lluvia observada (hietograma, acumulada o total) por duración, con las IDF de Uruguay (Rodríguez Fontal), una fórmula, una tabla IDF o un ajuste de Gumbel a máximos anuales.",
+    ruta: "/calculadoras/tormenta-tr",
+    categoria: "Hidrología",
+    metodosDisponibles: ["Uruguay (Rodríguez Fontal)", "Fórmula IDF", "Tabla IDF", "Gumbel (máximos anuales)"],
   },
 ];
 
