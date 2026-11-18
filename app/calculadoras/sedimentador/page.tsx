@@ -7,6 +7,7 @@ import { CampoNumerico } from "@/components/calculadoras/comun/CampoNumerico";
 import { CampoSeleccion } from "@/components/calculadoras/comun/CampoSeleccion";
 import { PanelFormulas } from "@/components/calculadoras/comun/PanelFormulas";
 import { PanelMetricas } from "@/components/calculadoras/comun/PanelMetricas";
+import { DiagramaSedimentadorCircular, DiagramaSedimentadorLaminar, DiagramaSedimentadorRectangular } from "@/components/calculadoras/croquis/DiagramasProcesos";
 import { decantadorConvencional, decantadorLaminar, stokes } from "@/lib/calc/potabilizacion/sedimentacion";
 import { aNumero, fmt } from "@/lib/calculadoras/formato";
 import { buscarCalculadora } from "@/lib/calculadoras/registry";
@@ -66,6 +67,11 @@ export default function SedimentadorPage() {
               { etiqueta: "Remoción primaria", valor: `DBO ${fmt(r.remDbo, 0)} % · SST ${fmt(r.remSst, 0)} %`, nota: "Metcalf & Eddy" },
             ]}
           />
+          {d.forma === "rectangular" ? (
+            <DiagramaSedimentadorRectangular largoM={r.largo} anchoM={r.ancho} profundidadM={d.profundidadM} unidades={d.unidades} tiempoH={r.tiempoH} />
+          ) : (
+            <DiagramaSedimentadorCircular diametroM={r.diametro} profundidadM={d.profundidadM} unidades={d.unidades} tiempoH={r.tiempoH} />
+          )}
           <ListaAvisos avisos={avisos} />
           <PanelFormulas
             titulo="Ver cálculo"
@@ -97,6 +103,7 @@ export default function SedimentadorPage() {
               { etiqueta: "Carga aparente", valor: `${fmt(r.cargaAparente, 0)} m³/m²·d` },
             ]}
           />
+          <DiagramaSedimentadorLaminar anguloGrados={d.anguloGrados} espaciamientoM={d.espaciamientoM} largoPlacaM={d.largoPlacaM} v0Md={r.v0Md} areaM2={r.area} />
           <ListaAvisos avisos={avisos} />
           <PanelFormulas
             titulo="Ver cálculo"

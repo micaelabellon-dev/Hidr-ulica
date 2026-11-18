@@ -6,6 +6,7 @@ import { ListaAvisos, ListaErrores } from "@/components/calculadoras/comun/Barra
 import { CampoNumerico } from "@/components/calculadoras/comun/CampoNumerico";
 import { PanelFormulas } from "@/components/calculadoras/comun/PanelFormulas";
 import { PanelMetricas } from "@/components/calculadoras/comun/PanelMetricas";
+import { DiagramaDaf } from "@/components/calculadoras/croquis/DiagramasProcesos";
 import { calcularDaf } from "@/lib/calc/potabilizacion/daf";
 import { aNumero, fmt } from "@/lib/calculadoras/formato";
 import { buscarCalculadora } from "@/lib/calculadoras/registry";
@@ -93,6 +94,7 @@ export default function DafPage() {
                   { etiqueta: "Aire", valor: `${fmt(r.aireKgH, 3)} kg/h`, nota: `${fmt(r.aireLh, 0)} L/h` },
                 ]}
               />
+              <DiagramaDaf largoM={r.largo} anchoM={r.ancho} recirculacionM3d={r.recirculacion} porcentaje={r.porcentajeRecirculacion} presionKPa={d.presionKPa} caudalM3d={d.caudalM3d} />
               <ListaAvisos avisos={avisos} />
               <PanelFormulas
                 titulo="Ver cálculo"
