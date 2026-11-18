@@ -26,6 +26,21 @@ export function BarraMovil() {
           <Link href="/" onClick={() => setAbierto(false)} className="mb-6 block px-2" aria-label="HidroCalc — inicio">
             <Logo className="h-7 w-auto text-sidebar-accent-foreground" titulo="" />
           </Link>
+          <div className="mb-6 flex gap-1.5 px-2">
+            {[
+              ["Inicio", "/"],
+              ["Recursos", "/recursos"],
+            ].map(([nombre, ruta]) => (
+              <Link
+                key={ruta}
+                href={ruta}
+                onClick={() => setAbierto(false)}
+                className="rounded-full border border-sidebar-border px-3 py-1 text-xs transition-colors hover:bg-sidebar-accent"
+              >
+                {nombre}
+              </Link>
+            ))}
+          </div>
           <NavCalculadoras onNavegar={() => setAbierto(false)} />
         </SheetContent>
       </Sheet>
