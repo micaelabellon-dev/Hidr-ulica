@@ -99,7 +99,11 @@ export default function AlcancePage() {
             volumen del inicio o en el volumen medio del paso, interpolada linealmente en la curva
             cota-área-volumen. El caudal ambiental por percentil usa los factores de la
             regionalización que se carguen; los que trae por defecto son de la subregión Sur /
-            Sureste y hay que reemplazarlos para otra subregión.
+            Sureste y hay que reemplazarlos para otra subregión. El aporte puede salir del modelo
+            de Témez (mensual, con los parámetros que se carguen; Genta et al. 2001 como partida para
+            Uruguay), que conviene validar contra caudales medidos o contra la regionalización. La
+            sensibilidad a la demanda y la demanda firme suponen una demanda constante en todos los
+            pasos.
           </p>
         </div>
       </section>

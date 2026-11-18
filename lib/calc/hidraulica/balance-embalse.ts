@@ -49,6 +49,8 @@ export interface RegistroSerie {
   evaporacionMm: number;
   /** Demanda a suministrar: m³/s, o m³ en el paso según `unidadCaudal`. */
   extraccion: number;
+  /** ETP del paso en mm, para el modelo de Témez (NaN o ausente si no se cargó). */
+  etpMm?: number;
 }
 
 export interface DatosBalance {
@@ -340,7 +342,149 @@ export function calcularBalance(datos: DatosBalance): ResultadoBalance {
   };
 }
 
+// ── Sensibilidad a la demanda ──────────────────────────────────────────────
+
+export interface EscenarioDemanda {
+  /** Demanda constante, en la unidad de la serie (m³/s o m³ del paso). */
+  demanda: number;
+  garantiaTemporal: number;
+  garantiaVolumetrica: number;
+  pasosConFalla: number;
+  rachaMaximaFalla: number;
+  deficitMaximoHm3: number;
+  cumplimientoQamb: number;
+  volumenMinimoHm3: number;
+}
+
+export function balanceConDemanda(datos: DatosBalance, demanda: number): ResultadoBalance {
+  return calcularBalance({ ...datos, serie: datos.serie.map((r) => ({ ...r, extraccion: demanda })) });
+}
+
+/** Corre el balance con cada demanda constante y resume el desempeño. */
+export function sensibilidadDemanda(datos: DatosBalance, demandas: readonly number[]): EscenarioDemanda[] {
+  return demandas.map((demanda) => {
+    const r = balanceConDemanda(datos, demanda);
+    return {
+      demanda,
+      garantiaTemporal: r.garantiaTemporal,
+      garantiaVolumetrica: r.garantiaVolumetrica,
+      pasosConFalla: r.pasosConDeficit,
+      rachaMaximaFalla: r.rachaMaximaFalla,
+      deficitMaximoHm3: r.deficitMaximoHm3,
+      cumplimientoQamb: r.cumplimientoQamb,
+      volumenMinimoHm3: r.volumenMinimo.valorHm3,
+    };
+  });
+}
+
+/**
+ * Demanda constante máxima que todavía cumple la garantía pedida (temporal o
+ * volumétrica), por bisección: la garantía no crece al subir la demanda.
+ * Devuelve 0 si ni con demanda nula se cumple (p. ej. por el caudal ambiental).
+ */
+export function demandaFirme(
+  datos: DatosBalance,
+  garantia: number,
+  criterio: "temporal" | "volumetrica"
+): number {
+  const cumple = (d: number) => {
+    const r = balanceConDemanda(datos, d);
+    return (criterio === "temporal" ? r.garantiaTemporal : r.garantiaVolumetrica) >= garantia - 1e-12;
+  };
+  const aporteMedio = datos.serie.reduce((s, r) => s + r.aporte, 0) / Math.max(1, datos.serie.length);
+  let lo = 0;
+  let hi = Math.max(aporteMedio, 1e-9);
+  let vueltas = 0;
+  while (cumple(hi) && vueltas++ < 40) {
+    lo = hi;
+    hi *= 2;
+  }
+  for (let k = 0; k < 50; k++) {
+    const mid = (lo + hi) / 2;
+    if (cumple(mid)) lo = mid;
+    else hi = mid;
+  }
+  return lo;
+}
+
+// ── Agregación de datos diarios a mensuales ────────────────────────────────
+
+/**
+ * Pasa una serie diaria (fecha, aporte, P, E, demanda, ETP) a mensual, como
+ * se hace con los datos de una estación meteorológica:
+ *   - P: suma de los días con dato (no se rellena);
+ *   - E y ETP: promedio de los días con dato × días del mes (se completan los
+ *     días faltantes con el promedio del mes);
+ *   - aporte y demanda: promedio si están en m³/s, suma si son volúmenes.
+ * Devuelve las filas mensuales y, por mes, cuántos días faltan de cada variable.
+ */
+export function agregarDiarioAMensual(
+  filas: readonly string[][],
+  unidadCaudal: UnidadCaudalSerie
+): { filas: string[][]; faltantes: { mes: string; p: number; e: number; etp: number }[] } {
+  const meses = new Map<string, { dias: number; vals: number[][]; fechas: Set<number> }>();
+  for (const f of filas) {
+    const fecha = fechaDeCelda(f[0] ?? "");
+    if (!fecha) continue;
+    const clave = `${fecha.anio}-${String(fecha.mes).padStart(2, "0")}`;
+    const m = meses.get(clave) ?? { dias: diasDelMes(fecha.anio, fecha.mes), vals: [[], [], [], [], []], fechas: new Set<number>() };
+    if (m.fechas.has(fecha.dia)) continue; // día repetido: se toma el primero
+    m.fechas.add(fecha.dia);
+    [1, 2, 3, 4, 5].forEach((j, k) => {
+      const v = numeroDeCelda(f[j] ?? "");
+      if (v !== null && !Number.isNaN(v)) m.vals[k].push(v);
+    });
+    meses.set(clave, m);
+  }
+  const txt = (n: number) => (Number.isFinite(n) ? String(+n.toPrecision(12)).replace(".", ",") : "");
+  const suma = (a: number[]) => a.reduce((s, x) => s + x, 0);
+  const media = (a: number[]) => (a.length ? suma(a) / a.length : NaN);
+  const caudal = (a: number[], dias: number) =>
+    a.length === 0 ? NaN : unidadCaudal === "m3s" ? media(a) : (suma(a) / a.length) * dias;
+  const salida: string[][] = [];
+  const faltantes: { mes: string; p: number; e: number; etp: number }[] = [];
+  for (const clave of [...meses.keys()].sort()) {
+    const m = meses.get(clave)!;
+    const [ap, p, e, dem, etp] = m.vals;
+    salida.push([
+      `${clave}-01`,
+      txt(caudal(ap, m.dias)),
+      p.length ? txt(suma(p)) : "",
+      txt(media(e) * m.dias),
+      txt(caudal(dem, m.dias)),
+      txt(media(etp) * m.dias),
+    ]);
+    const f = { mes: clave, p: m.dias - p.length, e: m.dias - e.length, etp: m.dias - etp.length };
+    if (f.p > 0 || (e.length > 0 && f.e > 0) || (etp.length > 0 && f.etp > 0)) faltantes.push(f);
+  }
+  return { filas: salida, faltantes };
+}
+
 // ── Columnas y validación de las tablas de entrada ─────────────────────────
+
+/** Qué columnas de la serie hacen falta según cómo se arma el balance. */
+export interface ColumnasRequeridas {
+  /** Falta si el aporte sale del modelo de Témez. */
+  aporte: boolean;
+  /** Falta si la demanda es constante. */
+  demanda: boolean;
+  /** Hace falta para Témez. */
+  etp: boolean;
+}
+
+export const TODAS_LAS_COLUMNAS: ColumnasRequeridas = { aporte: true, demanda: true, etp: false };
+
+export function especsSerie(r: ColumnasRequeridas): EspecColumna[] {
+  return COLUMNAS_SERIE.map((c) =>
+    c.clave === "aporte"
+      ? { ...c, obligatoria: r.aporte }
+      : c.clave === "extraccion"
+        ? { ...c, obligatoria: r.demanda }
+        : c.clave === "etpMm"
+          ? { ...c, obligatoria: r.etp }
+          : c
+  );
+}
 
 export type UnidadCaudalArchivo = "m3s" | "ls" | "m3" | "hm3";
 
@@ -408,6 +552,13 @@ export const COLUMNAS_SERIE: readonly EspecColumna[] = [
     obligatoria: true,
     tipo: "numero",
   },
+  {
+    clave: "etpMm",
+    nombre: "etp_mm",
+    alias: ["etp", "eto", "et0", "evapotranspiracion", "evapotranspiracion_potencial"],
+    obligatoria: false,
+    tipo: "numero",
+  },
 ];
 
 export const COLUMNAS_CURVA: readonly EspecColumna[] = [
@@ -434,7 +585,8 @@ const NOMBRE_CAMPO_SERIE: Record<string, string> = {
   aporte: "aporte",
   precipitacionMm: "precipitación",
   evaporacionMm: "evaporación",
-  extraccion: "extracción",
+  extraccion: "demanda",
+  etpMm: "ETP",
 };
 
 function sumarPaso(fecha: { anio: number; mes: number; dia: number }, paso: PasoTiempo) {
@@ -457,7 +609,8 @@ const iso = (f: { anio: number; mes: number; dia: number }) =>
 export function validarSerie(
   filas: readonly string[][],
   paso: PasoTiempo,
-  numeroFila: (i: number) => number = (i) => i + 1
+  numeroFila: (i: number) => number = (i) => i + 1,
+  requeridas: ColumnasRequeridas = TODAS_LAS_COLUMNAS
 ): { serie: RegistroSerie[] | null; errores: string[] } {
   const errores: string[] = [];
   if (filas.length === 0) return { serie: null, errores: ["La serie no tiene ningún paso cargado."] };
@@ -485,6 +638,12 @@ export function validarSerie(
       const texto = fila[j + 1] ?? "";
       const num = numeroDeCelda(texto);
       const nombre = NOMBRE_CAMPO_SERIE[col.clave];
+      const usada =
+        col.clave === "aporte" ? requeridas.aporte : col.clave === "extraccion" ? requeridas.demanda : col.clave === "etpMm" ? requeridas.etp : true;
+      if (!usada) {
+        valores[col.clave] = num === null || Number.isNaN(num) ? NaN : num;
+        return;
+      }
       if (num === null) errores.push(`Fila ${n}: falta el valor de ${nombre}.`);
       else if (Number.isNaN(num)) errores.push(`Fila ${n}: ${nombre} «${texto}» no es un número.`);
       else if (num < 0) errores.push(`Fila ${n}: ${nombre} negativo (${texto}). Los valores tienen que ser ≥ 0.`);
@@ -497,6 +656,7 @@ export function validarSerie(
       precipitacionMm: valores.precipitacionMm,
       evaporacionMm: valores.evaporacionMm,
       extraccion: valores.extraccion,
+      etpMm: valores.etpMm,
     });
   });
 
@@ -581,6 +741,7 @@ export function serieEjemplo(paso: PasoTiempo): string[][] {
     const precip = [95, 88, 102, 70, 45, 30, 22, 25, 40, 72, 85, 98];
     const evap = [210, 170, 140, 90, 60, 40, 45, 70, 100, 140, 180, 215];
     const extr = [3.6, 3.6, 3.2, 2.6, 2.0, 1.8, 1.8, 2.0, 2.4, 2.9, 3.3, 3.6];
+    const etp = [190, 150, 120, 75, 50, 35, 38, 55, 80, 115, 150, 185];
     const filas: string[][] = [];
     for (let k = 0; k < 24; k++) {
       const m = k % 12;
@@ -592,6 +753,7 @@ export function serieEjemplo(paso: PasoTiempo): string[][] {
         texto(Math.round(precip[m] * f)),
         texto(evap[m]),
         texto(extr[m]),
+        texto(etp[m]),
       ]);
     }
     return filas;
@@ -605,6 +767,7 @@ export function serieEjemplo(paso: PasoTiempo): string[][] {
       texto(lluvia),
       texto(+(6.5 + 0.8 * Math.cos(d / 4)).toFixed(1)),
       texto(3.4),
+      texto(+(5.6 + 0.6 * Math.cos(d / 4)).toFixed(1)),
     ]);
   }
   return filas;

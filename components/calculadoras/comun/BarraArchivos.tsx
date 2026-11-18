@@ -26,6 +26,8 @@ interface BarraArchivosProps {
   /** Plantilla descargable: la primera tabla va también al CSV. */
   plantilla?: () => TablaSalida[];
   nombrePlantilla?: string;
+  /** Errores de datos de una hoja candidata; con varias hojas válidas se elige la de menos. */
+  puntuar?: (celdas: string[][]) => number;
 }
 
 /**
@@ -34,7 +36,7 @@ interface BarraArchivosProps {
  * frenan la importación; los de datos los muestra la calculadora debajo de la
  * tabla, porque también aparecen al editar a mano.
  */
-export function BarraArchivos({ id, especs, onImportar, plantilla, nombrePlantilla = "plantilla" }: BarraArchivosProps) {
+export function BarraArchivos({ id, especs, onImportar, plantilla, nombrePlantilla = "plantilla", puntuar }: BarraArchivosProps) {
   const entrada = useRef<HTMLInputElement>(null);
   const [mensaje, setMensaje] = useState<{ tipo: "ok" | "error"; lineas: string[] } | null>(null);
   const [leyendo, setLeyendo] = useState(false);
@@ -45,7 +47,7 @@ export function BarraArchivos({ id, especs, onImportar, plantilla, nombrePlantil
     setMensaje(null);
     try {
       const hojas = await leerArchivoTabla(archivo);
-      const r = importarLibro(hojas, especs);
+      const r = importarLibro(hojas, especs, puntuar);
       if (r.errores.length > 0) {
         setMensaje({ tipo: "error", lineas: [`No se importó «${archivo.name}»:`, ...r.errores] });
       } else {
