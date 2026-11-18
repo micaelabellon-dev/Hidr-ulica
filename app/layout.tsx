@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
-import { Fredoka, IBM_Plex_Mono, Manrope } from "next/font/google";
+import { Cormorant_Garamond, IBM_Plex_Mono, Manrope } from "next/font/google";
 import { Shell } from "@/components/shell/Shell";
 import { scriptTemaInicial } from "@/components/TemaToggle";
 import "./globals.css";
 
 /**
- * Manrope para toda la interfaz, incluidos los títulos. La monoespaciada no
+ * Cormorant Garamond para títulos y logo (serif fina, estética cálida);
+ * Manrope para la interfaz. La monoespaciada no
  * es decorativa: números, cotas y unidades van en ancho fijo para que no
  * bailen al recalcular mientras se tipea. Mismo criterio tipográfico que el
  * resto de las herramientas de cálculo de la oficina.
@@ -24,11 +25,11 @@ const mono = IBM_Plex_Mono({
   weight: ["400", "500"],
 });
 
-const logo = Fredoka({
-  variable: "--font-logo",
+const display = Cormorant_Garamond({
+  variable: "--font-display",
   subsets: ["latin"],
   display: "swap",
-  weight: ["600"],
+  weight: ["400", "500", "600"],
 });
 
 const descripcion =
@@ -48,7 +49,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="es"
-      className={`${sans.variable} ${mono.variable} ${logo.variable} h-full antialiased`}
+      className={`${sans.variable} ${mono.variable} ${display.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <head>

@@ -29,7 +29,7 @@ export function BarraLateral() {
     <aside className="hidden w-60 shrink-0 bg-sidebar text-sidebar-foreground md:block print:hidden">
       <div className="sticky top-0 flex h-screen flex-col gap-6 overflow-y-auto p-4">
         <Link href="/" className="block px-1 pt-1" aria-label="HidroCalc — inicio">
-          <Logo className="h-7 w-auto text-white" titulo="" />
+          <Logo className="h-7 w-auto text-sidebar-accent-foreground" titulo="" />
           <span className="mt-1.5 block text-[10px] font-semibold uppercase tracking-[0.18em] text-sidebar-foreground/55">
             Cálculo hidráulico
           </span>
@@ -76,9 +76,9 @@ export function BarraLateral() {
             href="/alcance"
             className="flex items-start gap-2.5 rounded-lg px-2.5 py-2 text-xs transition-colors hover:bg-sidebar-accent"
           >
-            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[var(--celeste)]" />
+            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
             <span>
-              <span className="block font-medium text-white">Alcance y responsabilidad</span>
+              <span className="block font-medium text-sidebar-accent-foreground">Alcance y responsabilidad</span>
               <span className="block text-sidebar-foreground/60">Qué respalda cada número</span>
             </span>
           </Link>

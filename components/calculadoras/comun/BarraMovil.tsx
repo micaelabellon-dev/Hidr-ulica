@@ -24,14 +24,14 @@ export function BarraMovil() {
         <SheetContent side="left" className="w-[85vw] max-w-xs overflow-y-auto border-sidebar-border bg-sidebar p-4 text-sidebar-foreground">
           <SheetTitle className="sr-only">Índice de calculadoras</SheetTitle>
           <Link href="/" onClick={() => setAbierto(false)} className="mb-6 block px-2" aria-label="HidroCalc — inicio">
-            <Logo className="h-7 w-auto text-white" titulo="" />
+            <Logo className="h-7 w-auto text-sidebar-accent-foreground" titulo="" />
           </Link>
           <NavCalculadoras onNavegar={() => setAbierto(false)} />
         </SheetContent>
       </Sheet>
 
       <Link href="/" aria-label="HidroCalc — inicio">
-        <Logo className="h-7 w-auto text-white" titulo="" />
+        <Logo className="h-7 w-auto text-sidebar-accent-foreground" titulo="" />
       </Link>
 
       <div className="ml-auto">

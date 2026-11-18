@@ -11,22 +11,19 @@ export default function Home() {
       <HeroResumen />
 
       <section className="space-y-4">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-              Biblioteca de calculadoras
-            </p>
-            <h2 className="mt-1 text-2xl">¿Qué necesitás calcular?</h2>
-          </div>
+        <div className="pb-2 text-center">
+          <p className="spec-label">Biblioteca de calculadoras</p>
+          <h2 className="mt-2 text-4xl sm:text-5xl">¿Qué necesitás calcular?</h2>
+          <p className="mt-2 text-sm text-muted-foreground">Elegí una herramienta; los datos quedan guardados en tu navegador.</p>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           {registroCalculadoras.map((c, i) => (
             <Link key={c.id} href={c.ruta} className="group block">
-              <Card className="h-full transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md">
+              <Card className="h-full rounded-3xl transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md">
                 <CardContent className="flex h-full flex-col gap-3 pt-6">
                   <div className="flex items-start justify-between gap-2">
-                    <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent text-sm font-bold text-accent-foreground">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-accent font-heading text-lg font-semibold text-accent-foreground">
                       {String(i + 1).padStart(2, "0")}
                     </span>
                     <span className="flex h-7 w-7 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors group-hover:border-primary group-hover:bg-primary group-hover:text-primary-foreground">
@@ -34,7 +31,7 @@ export default function Home() {
                     </span>
                   </div>
                   <div className="flex-1">
-                    <h3 className="text-base">{c.nombre}</h3>
+                    <h3 className="text-xl">{c.nombre}</h3>
                     <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{c.descripcion}</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5 border-t border-border/60 pt-3">

@@ -1,6 +1,6 @@
 /**
- * Logotipo de HidroCalc: la palabra con una gota ocupando el lugar del punto
- * sobre la "i" de "Hidro".
+ * Logotipo de HidroCalc: una gota y la palabra en serif, con «Calc» en
+ * cursiva rosa terracota.
  *
  * Va dibujado en SVG, no como imagen: escala sin perder filo a cualquier
  * tamaño, hereda el color del texto —funciona igual en tema claro y oscuro, y
@@ -15,39 +15,22 @@ interface LogoProps {
 export function Logo({ className, titulo = "HidroCalc" }: LogoProps) {
   return (
     <svg
-      viewBox="0 0 320 90"
+      viewBox="0 0 300 80"
       className={className}
       role={titulo ? "img" : "presentation"}
       aria-label={titulo || undefined}
       aria-hidden={titulo ? undefined : true}
       fill="currentColor"
     >
-      <text
-        x={0}
-        y={66}
-        fontFamily="var(--font-logo), system-ui, sans-serif"
-        fontWeight={600}
-        fontSize={56}
-        letterSpacing={-1}
-      >
-        H
-        <tspan dx={1}>idro</tspan>
-      </text>
-
-      {/* Gota, en el lugar donde iría el punto de la "i" de "idro". */}
-      <Gota x={108} y={6} />
-
-      <text
-        x={128}
-        y={66}
-        fontFamily="var(--font-logo), system-ui, sans-serif"
-        fontWeight={600}
-        fontSize={56}
-        letterSpacing={-1}
-        className="text-[var(--brillante)]"
-        fill="currentColor"
-      >
-        Calc
+      {/* Gota, con el rosa terracota de la marca. */}
+      <g className="text-[var(--brillante)]">
+        <Gota x={2} y={16} escala={1.45} />
+      </g>
+      <text x={42} y={60} fontFamily="var(--font-display), Georgia, serif" fontWeight={500} fontSize={60} letterSpacing={0.5}>
+        Hidro
+        <tspan className="text-[var(--brillante)]" fill="currentColor" fontStyle="italic">
+          Calc
+        </tspan>
       </text>
     </svg>
   );

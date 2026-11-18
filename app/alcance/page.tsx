@@ -18,7 +18,7 @@ export default function AlcancePage() {
 
       <div>
         <p className="spec-label">Antes de usar un resultado</p>
-        <h1 className="text-3xl font-semibold tracking-tight">Alcance y responsabilidad</h1>
+        <h1 className="text-5xl font-medium">Alcance y responsabilidad</h1>
       </div>
 
       <section className="space-y-4">

@@ -150,7 +150,7 @@ export default function MezclaRapidaPage() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="spec-label">{meta.categoria} · Calculadoras</p>
-          <h1 className="text-2xl font-semibold tracking-tight">{meta.nombre}</h1>
+          <h1 className="text-4xl font-medium">{meta.nombre}</h1>
         </div>
         <BarraAcciones metodos={meta.metodosDisponibles} metodo={esParshall ? "Canaleta Parshall" : "Placa orificio"} onMetodoChange={setMetodo} />
       </div>
