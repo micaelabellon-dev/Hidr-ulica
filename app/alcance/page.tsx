@@ -115,6 +115,15 @@ export default function AlcancePage() {
             mayores que el doble del registro.
           </p>
           <p>
+            <strong className="text-foreground">Control de escurrimiento (MCE).</strong> Los hidrogramas
+            salen de un hidrograma unitario triangular (Tp = D/2 + k·Tc, Tb = k·Tp) convolucionado a paso
+            de 1 minuto con la lluvia neta C·i, con un C constante en toda la tormenta (sin pérdidas
+            iniciales ni variación con la lámina). El volumen sobre el pico previo es un mínimo: el
+            volumen real del amortiguador depende de la ley de descarga y se obtiene del tránsito en
+            SWMM. La salida de SWMM se interpola a 1 minuto y se suma, sin desfasaje, al hidrograma del
+            área sin amortiguar.
+          </p>
+          <p>
             <strong className="text-foreground">Amoníaco libre.</strong> Equilibrio NH₄⁺ ⇌ NH₃ con el pKa
             según temperatura de Emerson et al. (1975), válido entre 0 y 50 °C en agua dulce: no
             corrige por fuerza iónica, así que en agua salobre o de mar sobrestima la fracción libre.
