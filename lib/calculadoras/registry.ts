@@ -12,14 +12,17 @@ export type IdCalculadora =
   | "canales-manning"
   | "balance-embalse"
   | "tormenta-tr"
-  | "amoniaco-libre";
+  | "amoniaco-libre"
+  | "laguna-facultativa"
+  | "humedal-vertical"
+  | "desinfeccion-cloro";
 
 export interface CalculadoraMeta {
   id: IdCalculadora;
   nombre: string;
   descripcion: string;
   ruta: string;
-  categoria: "Flujo a presión" | "Estaciones de bombeo" | "Flujo a superficie libre" | "Hidrología" | "Calidad de agua";
+  categoria: "Flujo a presión" | "Estaciones de bombeo" | "Flujo a superficie libre" | "Hidrología" | "Calidad de agua" | "Tratamiento de efluentes";
   /** Métodos o fórmulas entre los que se puede elegir, para que la tarjeta los muestre como "norma". */
   metodosDisponibles: readonly string[];
 }
@@ -96,6 +99,33 @@ export const registroCalculadoras: CalculadoraMeta[] = [
     ruta: "/calculadoras/amoniaco-libre",
     categoria: "Calidad de agua",
     metodosDisponibles: ["Emerson et al. (1975)"],
+  },
+  {
+    id: "laguna-facultativa",
+    nombre: "Laguna facultativa",
+    descripcion:
+      "Área por carga superficial según la temperatura, volumen con taludes, tiempo de retención y remoción de DBO, coliformes, nitrógeno y fósforo por flujo disperso, limpia y con lodo, y años entre limpiezas.",
+    ruta: "/calculadoras/laguna-facultativa",
+    categoria: "Tratamiento de efluentes",
+    metodosDisponibles: ["von Sperling", "Flujo disperso"],
+  },
+  {
+    id: "humedal-vertical",
+    nombre: "Humedal de flujo vertical",
+    descripcion:
+      "Área por tasa de carga hidráulica en trenes, capas filtrantes y materiales, tiempo de retención, remociones y verificación del área por el modelo P-k-C* de Kadlec.",
+    ruta: "/calculadoras/humedal-vertical",
+    categoria: "Tratamiento de efluentes",
+    metodosDisponibles: ["Carga hidráulica", "P-k-C*"],
+  },
+  {
+    id: "desinfeccion-cloro",
+    nombre: "Desinfección con cloro",
+    descripcion:
+      "Concentración de cloro por Chick-Watson corregida por temperatura, dosis total, consumo de hipoclorito y caudal de la dosificadora, y volumen de contacto en cámara o tubería.",
+    ruta: "/calculadoras/desinfeccion-cloro",
+    categoria: "Tratamiento de efluentes",
+    metodosDisponibles: ["Chick-Watson"],
   },
 ];
 

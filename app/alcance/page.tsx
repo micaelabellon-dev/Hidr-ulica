@@ -121,6 +121,17 @@ export default function AlcancePage() {
             La fracción se aplica en moles; el resultado se da como NH₄⁺, NH₃ y N para compararlo con
             el límite en la misma forma en que lo expresa la norma.
           </p>
+          <p>
+            <strong className="text-foreground">Laguna facultativa, humedal vertical y desinfección.</strong>{" "}
+            Dimensionamiento de prediseño. La laguna usa la carga superficial de von Sperling
+            según la temperatura del mes más frío, flujo disperso (Wehner-Wilhelm) para DBO soluble y
+            coliformes y expresiones empíricas para nitrógeno; el resultado depende de constantes
+            cinéticas y coeficientes que conviene ajustar a la bibliografía o a datos locales. El
+            humedal se dimensiona por carga hidráulica con remociones adoptadas, y el modelo P-k-C*
+            sirve para verificar si esas remociones son alcanzables con el área. La cloración usa
+            Chick-Watson con constantes que dependen mucho del efluente: la dosis final hay que
+            ajustarla en planta midiendo el residual.
+          </p>
         </div>
       </section>
 
