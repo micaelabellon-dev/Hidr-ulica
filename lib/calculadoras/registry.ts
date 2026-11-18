@@ -4,14 +4,14 @@
  * agregar la próxima no obligue a tocar la navegación a mano.
  */
 
-export type IdCalculadora = "perdida-carga" | "canales-manning";
+export type IdCalculadora = "perdida-carga" | "bombeo-pozo" | "canales-manning" | "balance-embalse";
 
 export interface CalculadoraMeta {
   id: IdCalculadora;
   nombre: string;
   descripcion: string;
   ruta: string;
-  categoria: "Flujo a presión" | "Flujo a superficie libre";
+  categoria: "Flujo a presión" | "Flujo a superficie libre" | "Hidrología y almacenamiento";
   /** Métodos o fórmulas entre los que se puede elegir, para que la tarjeta los muestre como "norma". */
   metodosDisponibles: readonly string[];
 }
@@ -27,6 +27,15 @@ export const registroCalculadoras: CalculadoraMeta[] = [
     metodosDisponibles: ["Darcy-Weisbach", "Hazen-Williams"],
   },
   {
+    id: "bombeo-pozo",
+    nombre: "Bombeo desde pozo",
+    descripcion:
+      "Altura manométrica en nivel mínimo y máximo, curva del sistema y punto de operación con la curva de la bomba, rendimiento, potencia y verificación de NPSH o sumergencia.",
+    ruta: "/calculadoras/bombeo-pozo",
+    categoria: "Flujo a presión",
+    metodosDisponibles: ["Darcy-Weisbach", "Hazen-Williams"],
+  },
+  {
     id: "canales-manning",
     nombre: "Canales con Manning",
     descripcion:
@@ -34,6 +43,15 @@ export const registroCalculadoras: CalculadoraMeta[] = [
     ruta: "/calculadoras/canales-manning",
     categoria: "Flujo a superficie libre",
     metodosDisponibles: ["Manning"],
+  },
+  {
+    id: "balance-embalse",
+    nombre: "Balance hídrico de embalse",
+    descripcion:
+      "Operación de un embalse paso a paso, mensual o diario: volumen, cota, vertidos y déficit a partir de aportes, lluvia, evaporación, extracciones y la curva cota-área-volumen.",
+    ruta: "/calculadoras/balance-embalse",
+    categoria: "Hidrología y almacenamiento",
+    metodosDisponibles: ["Paso mensual", "Paso diario"],
   },
 ];
 

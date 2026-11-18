@@ -7,7 +7,7 @@ import { agruparPorCategoria, registroCalculadoras } from "@/lib/calculadoras/re
 
 export const metadata: Metadata = {
   title: "Calculadoras",
-  description: "Todas las calculadoras de HidroCalc, agrupadas por régimen de flujo.",
+  description: "Todas las calculadoras de HidroCalc, agrupadas por tema.",
 };
 
 export default function PaginaCalculadoras() {
@@ -19,8 +19,8 @@ export default function PaginaCalculadoras() {
         <p className="spec-label">Catálogo completo</p>
         <h1 className="text-3xl font-semibold tracking-tight">Calculadoras</h1>
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-          Agrupadas por régimen de flujo: a presión, dentro de una tubería, o a superficie libre,
-          dentro de un canal.
+          Agrupadas por tema: flujo a presión, dentro de una tubería; a superficie libre,
+          dentro de un canal; e hidrología y almacenamiento, para la operación de embalses.
         </p>
       </div>
 

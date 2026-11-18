@@ -32,7 +32,7 @@ const logo = Fredoka({
 });
 
 const descripcion =
-  "Calculadoras de hidráulica: pérdida de carga en tuberías (Darcy-Weisbach / Hazen-Williams) y tirante normal en canales por la ecuación de Manning.";
+  "Calculadoras de hidráulica: pérdida de carga en tuberías, bombeo desde pozos con elección de bomba, tirante normal en canales con Manning y balance hídrico de embalses.";
 
 export const metadata: Metadata = {
   title: {
