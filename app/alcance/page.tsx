@@ -114,6 +114,13 @@ export default function AlcancePage() {
             duraciones; con máximos anuales, un ajuste de Gumbel por momentos, poco confiable para TR
             mayores que el doble del registro.
           </p>
+          <p>
+            <strong className="text-foreground">Amoníaco libre.</strong> Equilibrio NH₄⁺ ⇌ NH₃ con el pKa
+            según temperatura de Emerson et al. (1975), válido entre 0 y 50 °C en agua dulce: no
+            corrige por fuerza iónica, así que en agua salobre o de mar sobrestima la fracción libre.
+            La fracción se aplica en moles; el resultado se da como NH₄⁺, NH₃ y N para compararlo con
+            el límite en la misma forma en que lo expresa la norma.
+          </p>
         </div>
       </section>
 

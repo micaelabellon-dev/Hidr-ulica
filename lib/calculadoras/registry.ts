@@ -11,14 +11,15 @@ export type IdCalculadora =
   | "pozo-humedo"
   | "canales-manning"
   | "balance-embalse"
-  | "tormenta-tr";
+  | "tormenta-tr"
+  | "amoniaco-libre";
 
 export interface CalculadoraMeta {
   id: IdCalculadora;
   nombre: string;
   descripcion: string;
   ruta: string;
-  categoria: "Flujo a presión" | "Estaciones de bombeo" | "Flujo a superficie libre" | "Hidrología";
+  categoria: "Flujo a presión" | "Estaciones de bombeo" | "Flujo a superficie libre" | "Hidrología" | "Calidad de agua";
   /** Métodos o fórmulas entre los que se puede elegir, para que la tarjeta los muestre como "norma". */
   metodosDisponibles: readonly string[];
 }
@@ -86,6 +87,15 @@ export const registroCalculadoras: CalculadoraMeta[] = [
     ruta: "/calculadoras/tormenta-tr",
     categoria: "Hidrología",
     metodosDisponibles: ["Uruguay (Rodríguez Fontal)", "Fórmula IDF", "Tabla IDF", "Gumbel (máximos anuales)"],
+  },
+  {
+    id: "amoniaco-libre",
+    nombre: "Amoníaco libre (NH₃) a partir de amonio",
+    descripcion:
+      "Fracción de amoníaco no ionizado según pH y temperatura (Emerson et al., 1975), en mg como NH₄⁺, NH₃ o N, comparación con un límite y amonio total máximo admisible, para una o varias muestras.",
+    ruta: "/calculadoras/amoniaco-libre",
+    categoria: "Calidad de agua",
+    metodosDisponibles: ["Emerson et al. (1975)"],
   },
 ];
 
