@@ -9,7 +9,7 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-body), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-mono-tecnica), ui-monospace, monospace;
-  --font-heading: var(--font-body), ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-display), ui-serif, Georgia, serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -63,90 +63,89 @@
 
 :root {
   /*
-   * Misma paleta que el resto de las herramientas de cálculo de la oficina:
-   * papel gris frío, tinta azul técnica, barra lateral azul marino casi negra.
-   * Va en hexadecimal, no en oklch: son los valores exactos del diseño.
+   * Paleta cálida: papel crema durazno, tinta marrón y acentos rosa
+   * terracota. El agua de los croquis sigue siendo celeste.
    */
-  --background: #eef1f4;
-  --foreground: #182027;
-  --card: #ffffff;
-  --card-foreground: #182027;
-  --popover: #ffffff;
-  --popover-foreground: #182027;
-  --primary: #1769aa;
-  --primary-foreground: #ffffff;
-  --secondary: #e4e9ee;
-  --secondary-foreground: #182027;
-  --muted: #e9edf1;
-  --muted-foreground: #68747d;
-  --accent: #e2eef8;
-  --accent-foreground: #12527f;
-  --destructive: #c65b32;
-  --border: #d8dee5;
-  --input: #ccd4dc;
-  --ring: #2c92e1;
+  --background: #fcf1e7;
+  --foreground: #4a302a;
+  --card: #fffaf5;
+  --card-foreground: #4a302a;
+  --popover: #fffaf5;
+  --popover-foreground: #4a302a;
+  --primary: #b4655c;
+  --primary-foreground: #fffaf5;
+  --secondary: #f6e4d6;
+  --secondary-foreground: #4a302a;
+  --muted: #f7e8dc;
+  --muted-foreground: #8a6c62;
+  --accent: #f6ddd3;
+  --accent-foreground: #8e4a42;
+  --destructive: #b8382c;
+  --border: #edd8c8;
+  --input: #e4c9b6;
+  --ring: #c98a80;
 
-  --brillante: #2c92e1;
-  --celeste: #7cc6f5;
-  --exito: #39a675;
-  --superficie-tecnica: #132630;
+  --brillante: #b4655c;
+  --celeste: #e3a99e;
+  --exito: #5f9a6a;
+  --superficie-tecnica: #f7e2d2;
 
-  --chart-1: #7cc6f5;
-  --chart-2: #2c92e1;
-  --chart-3: #1769aa;
-  --chart-4: #12527f;
-  --chart-5: #132630;
-  --radius: 0.625rem;
+  --chart-1: #e3a99e;
+  --chart-2: #c98a80;
+  --chart-3: #b4655c;
+  --chart-4: #8e4a42;
+  --chart-5: #4a302a;
+  --radius: 0.85rem;
 
-  --sidebar: #101a21;
-  --sidebar-foreground: #c3ccd3;
-  --sidebar-primary: #1b3243;
-  --sidebar-primary-foreground: #7cc6f5;
-  --sidebar-accent: #17242e;
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #1e2b35;
-  --sidebar-ring: #2c92e1;
+  --sidebar: #f7e5d7;
+  --sidebar-foreground: #5c3f37;
+  --sidebar-primary: #b4655c;
+  --sidebar-primary-foreground: #fffaf5;
+  --sidebar-accent: #f0d6c6;
+  --sidebar-accent-foreground: #3d2722;
+  --sidebar-border: #ead2c1;
+  --sidebar-ring: #c98a80;
 }
 
 .dark {
-  --background: #0e161c;
-  --foreground: #e6ecf1;
-  --card: #132630;
-  --card-foreground: #e6ecf1;
-  --popover: #132630;
-  --popover-foreground: #e6ecf1;
-  --primary: #2c92e1;
-  --primary-foreground: #0e161c;
-  --secondary: #1b2a34;
-  --secondary-foreground: #e6ecf1;
-  --muted: #182831;
-  --muted-foreground: #93a1ab;
-  --accent: #1b3243;
-  --accent-foreground: #7cc6f5;
-  --destructive: #e0724a;
-  --border: #233540;
-  --input: #2a3d49;
-  --ring: #2c92e1;
+  --background: #1d1513;
+  --foreground: #f4e4da;
+  --card: #2a1f1c;
+  --card-foreground: #f4e4da;
+  --popover: #2a1f1c;
+  --popover-foreground: #f4e4da;
+  --primary: #dd968c;
+  --primary-foreground: #1d1513;
+  --secondary: #33261f;
+  --secondary-foreground: #f4e4da;
+  --muted: #2e221e;
+  --muted-foreground: #b9a097;
+  --accent: #3e2a25;
+  --accent-foreground: #f0b8ad;
+  --destructive: #e8705f;
+  --border: #3b2c27;
+  --input: #4a3730;
+  --ring: #dd968c;
 
-  --brillante: #2c92e1;
-  --celeste: #7cc6f5;
-  --exito: #4cbd8a;
-  --superficie-tecnica: #132630;
+  --brillante: #dd968c;
+  --celeste: #f0b8ad;
+  --exito: #78b984;
+  --superficie-tecnica: #2a1f1c;
 
-  --chart-1: #7cc6f5;
-  --chart-2: #2c92e1;
-  --chart-3: #1769aa;
-  --chart-4: #12527f;
-  --chart-5: #0e161c;
+  --chart-1: #f0b8ad;
+  --chart-2: #dd968c;
+  --chart-3: #b4655c;
+  --chart-4: #8e4a42;
+  --chart-5: #1d1513;
 
-  --sidebar: #0b1116;
-  --sidebar-foreground: #c3ccd3;
-  --sidebar-primary: #1b3243;
-  --sidebar-primary-foreground: #7cc6f5;
-  --sidebar-accent: #141f27;
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #1b262e;
-  --sidebar-ring: #2c92e1;
+  --sidebar: #171010;
+  --sidebar-foreground: #dcc6bc;
+  --sidebar-primary: #4a2f2a;
+  --sidebar-primary-foreground: #f0b8ad;
+  --sidebar-accent: #241a17;
+  --sidebar-accent-foreground: #fff4ee;
+  --sidebar-border: #2c211d;
+  --sidebar-ring: #dd968c;
 }
 
 /*
@@ -157,17 +156,17 @@
 :root {
   --mat-agua: #bfe0f5;
   --mat-agua-borde: #5ba3d6;
-  --mat-tuberia: #d8dde2;
-  --mat-tuberia-borde: #9aa6b1;
-  --mat-canal: #c7cdd3;
-  --mat-canal-borde: #7d8b96;
-  --mat-cota: #2c92e1;
-  --mat-critico: #c65b32;
+  --mat-tuberia: #e6dcd5;
+  --mat-tuberia-borde: #a8968c;
+  --mat-canal: #d9cbc0;
+  --mat-canal-borde: #8f7a6e;
+  --mat-cota: #b4655c;
+  --mat-critico: #c0392b;
 
   /* Series de gráficos: orden fijo, validado para daltonismo (azul, naranja, violeta). */
-  --serie-1: #1769aa;
-  --serie-2: #d9822b;
-  --serie-3: #8a5cc2;
+  --serie-1: #4f78a8;
+  --serie-2: #c8653f;
+  --serie-3: #9a6a9e;
 
   /* Materiales de tratamiento, para los croquis */
   --mat-lodo: #a88b63;
@@ -182,16 +181,16 @@
 .dark {
   --mat-agua: #1c3e52;
   --mat-agua-borde: #4a8fc4;
-  --mat-tuberia: #39464f;
-  --mat-tuberia-borde: #7d8b96;
-  --mat-canal: #2b3841;
-  --mat-canal-borde: #7d8b96;
-  --mat-cota: #7cc6f5;
-  --mat-critico: #e0724a;
+  --mat-tuberia: #4a3d38;
+  --mat-tuberia-borde: #94817a;
+  --mat-canal: #3a2e2a;
+  --mat-canal-borde: #94817a;
+  --mat-cota: #f0b8ad;
+  --mat-critico: #f07a66;
 
-  --serie-1: #3c94de;
-  --serie-2: #c8732a;
-  --serie-3: #9575d8;
+  --serie-1: #7ea6d6;
+  --serie-2: #e48a5f;
+  --serie-3: #c290c6;
 
   --mat-lodo: #6e5a3e;
   --mat-arena: #5c533f;
@@ -208,6 +207,10 @@
   }
   body {
     @apply bg-background text-foreground;
+    background-image:
+      radial-gradient(60rem 40rem at 100% -10%, color-mix(in srgb, var(--accent) 70%, transparent), transparent 70%),
+      radial-gradient(50rem 30rem at -10% 110%, color-mix(in srgb, var(--secondary) 80%, transparent), transparent 70%);
+    background-attachment: fixed;
   }
   html {
     @apply font-sans;
@@ -216,12 +219,15 @@
   h2,
   h3 {
     @apply font-heading;
-    font-weight: 700;
-    letter-spacing: -0.02em;
+    font-weight: 500;
+    letter-spacing: 0;
+    line-height: 1.1;
+    font-variant-numeric: lining-nums;
   }
-  h1 {
-    letter-spacing: -0.03em;
+  .font-heading {
+    font-variant-numeric: lining-nums;
   }
+
   input,
   .font-mono,
   [class*="tabular"] {
@@ -263,7 +269,7 @@
   }
 
   .spec-label {
-    @apply font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground;
+    @apply text-[11px] font-semibold uppercase tracking-[0.18em] text-primary;
   }
 
   [data-slot="collapsible-content"] {
