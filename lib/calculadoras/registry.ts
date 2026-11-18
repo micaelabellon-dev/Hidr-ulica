@@ -12,6 +12,7 @@ export type IdCalculadora =
   | "canales-manning"
   | "balance-embalse"
   | "tormenta-tr"
+  | "mce-amortiguacion"
   | "amoniaco-libre"
   | "laguna-facultativa"
   | "humedal-vertical"
@@ -96,6 +97,15 @@ export const registroCalculadoras: CalculadoraMeta[] = [
     ruta: "/calculadoras/tormenta-tr",
     categoria: "Hidrología",
     metodosDisponibles: ["Uruguay (Rodríguez Fontal)", "Fórmula IDF", "Tabla IDF", "Gumbel (máximos anuales)"],
+  },
+  {
+    id: "mce-amortiguacion",
+    nombre: "Control de escurrimiento (MCE)",
+    descripcion:
+      "Pre y post SWMM: C ponderado de proyecto y situación previa (FIS), Tc (Kirpich, Desbordes, FAA), hidrogramas por hidrograma unitario triangular para TR 2, 10 y 20, exportación de series para SWMM y comparación de la salida del amortiguador con el pico previo.",
+    ruta: "/calculadoras/mce-amortiguacion",
+    categoria: "Hidrología",
+    metodosDisponibles: ["Hidrograma unitario triangular", "Desbordes / Kirpich / FAA", "Salida de SWMM"],
   },
   {
     id: "amoniaco-libre",
