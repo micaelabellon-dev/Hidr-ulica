@@ -5,27 +5,40 @@ import {
   calcularBombeo,
   CURVA_BOMBA_EJEMPLO,
   evaluarPolinomio,
+  motorComercialKw,
   presionAtmosfericaKPa,
   presionVaporKPa,
   validarCurvaBomba,
   type DatosBombeo,
+  type TramoTuberia,
 } from "@/lib/calc/hidraulica/bombeo";
 import { calcularPerdidaCarga } from "@/lib/calc/hidraulica/perdida-carga";
 
-const tramo = { longitudM: 150, diametroMm: 125, rugosidadMm: 0.0015, hazenC: 150, sumaK: 5 };
+const tramo: TramoTuberia = {
+  nombre: "Impulsión",
+  longitudM: 150,
+  diametroMm: 125,
+  rugosidadMm: 0.0015,
+  hazenC: 150,
+  sumaK: 5,
+  perdidaFijaM: 0,
+  porBomba: false,
+};
 const puntos = validarCurvaBomba(CURVA_BOMBA_EJEMPLO, 2).puntos!;
 
 const base: DatosBombeo = {
   tipo: "sumergible",
-  metodo: "darcy-weisbach",
-  temperaturaC: 20,
+  hid: { metodo: "darcy-weisbach", temperaturaC: 20, g: 9.81, hazenCoef: 10.67, hazenExp: 1.852, densidad: 998.2 },
   caudalDisenoLs: 20,
+  bombasOperacion: 1,
+  bombasInstaladas: 2,
   cotaNivelMinimoM: 60,
   cotaNivelMaximoM: 75,
   cotaDescargaM: 100,
   presionDescargaM: 0,
-  impulsion: tramo,
+  impulsion: [tramo],
   succion: null,
+  coefSeguridad: 1,
   cotaEjeBombaM: 0,
   altitudMsnm: 0,
   npshrManualM: null,
@@ -34,6 +47,8 @@ const base: DatosBombeo = {
   sumergenciaMinimaM: 3,
   curvaBomba: puntos,
   gradoAjuste: 2,
+  rendimientoBombaPct: 65,
+  rendimientoMotorPct: 90,
 };
 
 describe("propiedades", () => {
@@ -44,6 +59,10 @@ describe("propiedades", () => {
   it("presión de vapor a 20 °C ≈ 2,34 kPa e interpola", () => {
     expect(presionVaporKPa(20)).toBeCloseTo(2.338, 3);
     expect(presionVaporKPa(22.5)).toBeCloseTo((2.338 + 3.169) / 2, 3);
+  });
+  it("motor normalizado inmediato superior", () => {
+    expect(motorComercialKw(4.3)).toBe(5.5);
+    expect(motorComercialKw(1.5)).toBe(1.5);
   });
 });
 
@@ -70,13 +89,28 @@ describe("calcularBombeo", () => {
     const r = calcularBombeo(base);
     const min = r.niveles.minimo.operacion!;
     const max = r.niveles.maximo.operacion!;
-    expect(min.alturaM).toBeCloseTo(alturaSistema(base, 60, min.caudalLs), 6);
-    expect(max.alturaM).toBeCloseTo(alturaSistema(base, 75, max.caudalLs), 6);
-    expect(min.caudalLs).toBeLessThan(max.caudalLs);
-    // Potencia hidráulica = ρgQH
-    expect(min.potenciaHidraulicaKw).toBeCloseTo((998.2 * 9.81 * (min.caudalLs / 1000) * min.alturaM) / 1000, 6);
-    expect(min.potenciaEjeKw!).toBeCloseTo(min.potenciaHidraulicaKw / (min.rendimientoPct! / 100), 6);
+    expect(min.alturaM).toBeCloseTo(alturaSistema(base, 60, min.caudalTotalLs), 6);
+    expect(max.alturaM).toBeCloseTo(alturaSistema(base, 75, max.caudalTotalLs), 6);
+    expect(min.caudalTotalLs).toBeLessThan(max.caudalTotalLs);
+    expect(min.potenciaHidraulicaKw).toBeCloseTo((998.2 * 9.81 * (min.caudalBombaLs / 1000) * min.alturaM) / 1000, 6);
+    expect(min.potenciaEjeKw).toBeCloseTo(min.potenciaHidraulicaKw / (min.rendimientoPct / 100), 6);
     expect(r.niveles.minimo.sumergencia).toEqual({ disponibleM: 10, requeridaM: 3, cumple: true });
+  });
+
+  it("dos bombas en paralelo: la curva conjunta es H(Q/2)", () => {
+    const r = calcularBombeo({ ...base, bombasOperacion: 2, bombasInstaladas: 3, caudalDisenoLs: 40 });
+    const op = r.niveles.minimo.operacion!;
+    expect(op.caudalBombaLs).toBeCloseTo(op.caudalTotalLs / 2, 10);
+    expect(op.alturaM).toBeCloseTo(alturaSistema({ ...base, bombasOperacion: 2, caudalDisenoLs: 40 }, 60, op.caudalTotalLs), 6);
+    expect(r.bombasReserva).toBe(1);
+  });
+
+  it("sin curva calcula alturas y potencia con los rendimientos fijos", () => {
+    const r = calcularBombeo({ ...base, curvaBomba: [] });
+    expect(r.curva).toBeNull();
+    expect(r.niveles.minimo.operacion).toBeNull();
+    expect(r.diseno.rendimientoPct).toBe(65);
+    expect(r.diseno.potenciaMotorKw).toBeCloseTo(r.diseno.potenciaHidraulicaKw / 0.65 / 0.9, 10);
   });
 
   it("avisa cuando la bomba no llega a la altura estática", () => {
@@ -89,7 +123,7 @@ describe("calcularBombeo", () => {
     const r = calcularBombeo({
       ...base,
       tipo: "aspiracion",
-      succion: { longitudM: 8, diametroMm: 150, rugosidadMm: 0.0015, hazenC: 150, sumaK: 2 },
+      succion: { ...tramo, nombre: "Succión", longitudM: 8, diametroMm: 150, sumaK: 2 },
       cotaNivelMinimoM: 95,
       cotaNivelMaximoM: 97,
       cotaEjeBombaM: 99,
@@ -103,9 +137,60 @@ describe("calcularBombeo", () => {
   });
 });
 
+describe("paridad con una planilla de estación de bombeo (PEAD SDR 17, Hazen-Williams 10,643 / 1,85, g = 9,8)", () => {
+  const hid = { metodo: "hazen-williams" as const, temperaturaC: 20, g: 9.8, hazenCoef: 10.643, hazenExp: 1.85, densidad: 1000 };
+  const manifold: TramoTuberia = {
+    nombre: "Manifold DN110",
+    longitudM: 4,
+    diametroMm: 96.8,
+    rugosidadMm: 0,
+    hazenC: 150,
+    sumaK: 0.5 + 3 * 0.3 + 2 * 0.6 + 2 * 0.9 + 0.2 + 2.5,
+    perdidaFijaM: 0.02,
+    porBomba: true,
+  };
+  const datos = (impulsion: TramoTuberia): DatosBombeo => ({
+    ...base,
+    hid,
+    caudalDisenoLs: 12.5,
+    bombasOperacion: 1,
+    bombasInstaladas: 2,
+    cotaNivelMinimoM: 1.43,
+    cotaNivelMaximoM: 2.43,
+    cotaDescargaM: 5.79,
+    impulsion: [manifold, impulsion],
+    curvaBomba: [],
+    coefSeguridad: 1.1,
+    rendimientoBombaPct: 65,
+    rendimientoMotorPct: 70,
+  });
+
+  it("impulsión DN110: H mín, media, máx, ajustada y potencias", () => {
+    const r = calcularBombeo(
+      datos({ nombre: "Impulsión DN110", longitudM: 378, diametroMm: 96.8, rugosidadMm: 0, hazenC: 150, sumaK: 0.3 + 1.8 + 0.4 + 1, perdidaFijaM: 0, porBomba: false })
+    );
+    expect(r.alturas.maximo.alturaTotalM).toBeCloseTo(14.973191145465853, 9);
+    expect(r.alturas.medio.alturaTotalM).toBeCloseTo(15.473191145465853, 9);
+    expect(r.alturas.minimo.alturaTotalM).toBeCloseTo(15.973191145465853, 9);
+    expect(r.alturaAjustadaM).toBeCloseTo(17.57051026001244, 9);
+    expect(r.diseno.potenciaHidraulicaKw).toBeCloseTo(1.9567159153195672, 9);
+    expect(r.diseno.potenciaEjeKw).toBeCloseTo(3.010332177414719, 9);
+    expect(r.diseno.potenciaMotorKw).toBeCloseTo(4.300474539163885, 9);
+    expect(r.diseno.motorComercialKw).toBe(5.5);
+  });
+
+  it("impulsión DN160: H máx", () => {
+    const r = calcularBombeo(
+      datos({ nombre: "Impulsión DN160", longitudM: 378, diametroMm: 141, rugosidadMm: 0, hazenC: 150, sumaK: 0.3 + 1.8 + 0.4 + 1, perdidaFijaM: 0, porBomba: false })
+    );
+    expect(r.alturas.minimo.alturaTotalM).toBeCloseTo(7.2344697980238895, 9);
+  });
+});
+
 describe("validarCurvaBomba", () => {
-  it("pide suficientes puntos y rechaza caudales repetidos", () => {
+  it("pide suficientes puntos y rechaza caudales repetidos; vacía es válida", () => {
     expect(validarCurvaBomba([["0", "10"], ["5", "8"]], 2).errores[0]).toMatch(/al menos 3/);
     expect(validarCurvaBomba([["0", "10"], ["5", "8"], ["5", "7"]], 2).errores.join()).toMatch(/repetido/);
+    expect(validarCurvaBomba([["", "", "", ""]], 2)).toEqual({ puntos: [], errores: [] });
   });
 });

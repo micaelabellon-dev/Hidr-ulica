@@ -29,6 +29,14 @@ export interface DatosPerdidaCarga {
   temperaturaC: number;
   /** Suma de coeficientes K de accesorios (codos, válvulas, entradas…). */
   sumaK: number;
+  /** Gravedad, m/s². Por defecto 9,81. */
+  g?: number;
+  /**
+   * Coeficiente y exponente de Hazen-Williams. Por defecto 10,67 y 1,852 (SI);
+   * muchas planillas usan 10,643 y 1,85, que dan ~1,5 % menos.
+   */
+  hazenCoef?: number;
+  hazenExp?: number;
 }
 
 export interface ResultadoPerdidaCarga {
@@ -63,6 +71,9 @@ export function factorFriccionColebrook(reynolds: number, rugosidadRelativa: num
 }
 
 export function calcularPerdidaCarga(datos: DatosPerdidaCarga): ResultadoPerdidaCarga {
+  const g = datos.g ?? G;
+  const hazenCoef = datos.hazenCoef ?? 10.67;
+  const hazenExp = datos.hazenExp ?? 1.852;
   const caudalM3s = datos.caudalLs / 1000;
   const diametroM = datos.diametroMm / 1000;
   const areaM2 = (Math.PI * diametroM ** 2) / 4;
@@ -82,13 +93,13 @@ export function calcularPerdidaCarga(datos: DatosPerdidaCarga): ResultadoPerdida
         ? 64 / reynolds
         : factorFriccionColebrook(reynolds, datos.rugosidadMm / 1000 / diametroM);
     perdidaFriccionM =
-      factorFriccion * (datos.longitudM / diametroM) * (velocidadMs ** 2 / (2 * G));
+      factorFriccion * (datos.longitudM / diametroM) * (velocidadMs ** 2 / (2 * g));
   } else {
     perdidaFriccionM =
-      (10.67 * datos.longitudM * (caudalM3s / datos.hazenC) ** 1.852) / diametroM ** 4.87;
+      (hazenCoef * datos.longitudM * (caudalM3s / datos.hazenC) ** hazenExp) / diametroM ** 4.87;
   }
 
-  const perdidaLocalizadaM = datos.sumaK * (velocidadMs ** 2 / (2 * G));
+  const perdidaLocalizadaM = datos.sumaK * (velocidadMs ** 2 / (2 * g));
   const perdidaTotalM = perdidaFriccionM + perdidaLocalizadaM;
 
   return {
@@ -102,6 +113,6 @@ export function calcularPerdidaCarga(datos: DatosPerdidaCarga): ResultadoPerdida
     perdidaFriccionM,
     perdidaLocalizadaM,
     perdidaTotalM,
-    perdidaTotalKPa: perdidaTotalM * G,
+    perdidaTotalKPa: perdidaTotalM * g,
   };
 }

@@ -1,45 +1,79 @@
-import { calcularPerdidaCarga, G, type MetodoPerdidaCarga } from "@/lib/calc/hidraulica/perdida-carga";
+import { calcularPerdidaCarga, type MetodoPerdidaCarga } from "@/lib/calc/hidraulica/perdida-carga";
 import type { EspecColumna } from "@/lib/calculadoras/tablas";
 import { numeroDeCelda } from "@/lib/calculadoras/tablas";
 import { fmt } from "@/lib/calculadoras/formato";
 
 /**
- * Bombeo desde un pozo y elección de la bomba.
+ * Bombeo: altura manométrica, elección de la bomba y potencia.
  *
  * Altura manométrica total para un nivel del agua en el pozo:
- *   H(Q) = (z_descarga − z_agua) + p_descarga/γ + hf_impulsión(Q) + hf_succión(Q)
- * con las pérdidas de cada tramo por Darcy-Weisbach o Hazen-Williams más ΣK·V²/2g
- * (la misma función que la calculadora de pérdida de carga). La succión sólo
- * existe con bomba de aspiración, instalada fuera del pozo.
+ *   H(Q) = (z_descarga − z_agua) + p_descarga/γ + Σ tramos [hf + ΣK·V²/2g + h_fija·(Q/Qd)²]
+ * con la impulsión armada por tramos en serie (manifold, impulsión, etc.), cada
+ * uno con su diámetro, material, accesorios y pérdidas fijas (caudalímetro,
+ * filtro), y una succión si la bomba es de aspiración. Un tramo puede llevar
+ * el caudal de una bomba (colector de cada bomba) o el total.
  *
- * Curva de la bomba: polinomio de grado 2 o 3 ajustado por mínimos cuadrados a
- * los puntos Q-H del catálogo; ídem Q-η y Q-NPSHr si se cargan.
+ * Con n bombas iguales en paralelo, la curva conjunta es H_n(Q) = H_1(Q/n).
  *
- * Punto de operación: intersección H_bomba(Q) = H_sistema(Q), por bisección,
- * dentro del rango de caudales de la curva cargada (no se extrapola).
+ * Diseño: H con nivel mínimo, medio y máximo; altura ajustada = H_máx × coef.
+ * de seguridad; potencia hidráulica = ρ·g·Q_bomba·H_máx; al eje = P_hid/η_bomba;
+ * del motor = P_eje/η_motor; total = n en operación × P_motor.
  *
- * NPSH disponible (bomba de aspiración):
- *   NPSHd = p_atm/γ − p_v/γ − h_s − hf_succión(Q)
- * con h_s = z_eje − z_agua (positiva si la bomba está por encima del agua).
- * p_atm según altitud (atmósfera estándar ISA) y p_v según temperatura.
+ * Con curva de la bomba (opcional): ajuste polinómico Q-H (y Q-η, Q-NPSHr),
+ * punto de operación H_n(Q) = H_sistema(Q) por bisección en el rango cargado,
+ * y rango recomendado 70–120 % de Q_BEP (ANSI/HI 9.6.3).
  *
- * Sumergencia (bomba sumergible): S = z_agua − z_admisión, contra la mínima
- * que exige el fabricante.
- *
- * Potencia: P_hidráulica = ρ·g·Q·H;  P_eje = P_hidráulica / η.
- * Rango recomendado: 70 % a 120 % del caudal de máximo rendimiento (región de
- * operación preferida, ANSI/HI 9.6.3). Sin curva de rendimiento se usa el
- * rango de caudales de la curva cargada.
+ * NPSH disponible (aspiración): NPSHd = p_atm/γ − p_v/γ − h_s − hf_succión.
+ * Sumergencia (sumergible): S = z_agua − z_admisión ≥ S_mín del fabricante.
  */
 
 export type TipoBomba = "aspiracion" | "sumergible";
 
+export const G_ESTANDAR = 9.81;
+
+export interface Accesorio {
+  id: string;
+  nombre: string;
+  /** Coeficiente K de pérdida localizada, valor de catálogo. */
+  k: number;
+}
+
+/** Accesorios habituales con su K (tablas de Azevedo Netto / Sotelo; editables en la calculadora). */
+export const ACCESORIOS: readonly Accesorio[] = [
+  { id: "entrada", nombre: "Entrada", k: 0.5 },
+  { id: "reduccion", nombre: "Ampliación / reducción", k: 0.3 },
+  { id: "te-directa", nombre: "Te, paso directo", k: 0.6 },
+  { id: "te-lateral", nombre: "Te, salida lateral", k: 1.8 },
+  { id: "codo-45", nombre: "Codo 45°", k: 0.4 },
+  { id: "codo-90", nombre: "Codo 90°", k: 0.9 },
+  { id: "valvula", nombre: "Válvula / llave abierta", k: 0.2 },
+  { id: "retencion", nombre: "Válvula de retención", k: 2.5 },
+  { id: "pie", nombre: "Válvula de pie con colador", k: 2.5 },
+  { id: "salida", nombre: "Salida", k: 1 },
+];
+
 export interface TramoTuberia {
+  nombre: string;
   longitudM: number;
+  /** Diámetro interior. */
   diametroMm: number;
   rugosidadMm: number;
   hazenC: number;
   sumaK: number;
+  /** Pérdida fija con el caudal de diseño (caudalímetro, filtro…); varía con (Q/Qd)². */
+  perdidaFijaM: number;
+  /** El tramo lleva el caudal de una sola bomba (colector propio de cada bomba). */
+  porBomba: boolean;
+}
+
+export interface OpcionesHidraulicas {
+  metodo: MetodoPerdidaCarga;
+  temperaturaC: number;
+  g: number;
+  hazenCoef: number;
+  hazenExp: number;
+  /** kg/m³ */
+  densidad: number;
 }
 
 export interface PuntoBomba {
@@ -51,29 +85,33 @@ export interface PuntoBomba {
 
 export interface DatosBombeo {
   tipo: TipoBomba;
-  metodo: MetodoPerdidaCarga;
-  temperaturaC: number;
+  hid: OpcionesHidraulicas;
+  /** Caudal total de diseño de la estación. */
   caudalDisenoLs: number;
+  bombasOperacion: number;
+  bombasInstaladas: number;
   cotaNivelMinimoM: number;
   cotaNivelMaximoM: number;
   cotaDescargaM: number;
   /** Presión que se quiere tener en el punto de descarga, en m de columna de agua. */
   presionDescargaM: number;
-  impulsion: TramoTuberia;
-  /** Sólo con bomba de aspiración. */
+  impulsion: TramoTuberia[];
+  /** Sólo con bomba de aspiración: la succión de cada bomba. */
   succion: TramoTuberia | null;
-  /** Bomba de aspiración: cota del eje de la bomba. */
+  coefSeguridad: number;
   cotaEjeBombaM: number;
   altitudMsnm: number;
-  /** NPSHr fijo, cuando la curva no trae Q-NPSHr. */
   npshrManualM: number | null;
-  /** Margen exigido entre NPSHd y NPSHr. */
   margenNpshM: number;
-  /** Bomba sumergible: cota de la admisión (rejilla de entrada). */
   cotaAdmisionM: number;
   sumergenciaMinimaM: number;
+  /** Curva de una bomba; vacía si todavía no se eligió. */
   curvaBomba: PuntoBomba[];
   gradoAjuste: 2 | 3;
+  /** Rendimiento de la bomba cuando la curva no trae η (o no hay curva). */
+  rendimientoBombaPct: number;
+  /** Rendimiento del motor (o mecánico de la transmisión). */
+  rendimientoMotorPct: number;
 }
 
 // ── Propiedades del agua y de la atmósfera ─────────────────────────────────
@@ -110,6 +148,16 @@ export const densidadAgua = (tempC: number) => interpolarTabla(tempC, 2);
 /** Atmósfera estándar: p = 101,325·(1 − 2,25577×10⁻⁵·z)^5,25588 kPa. */
 export function presionAtmosfericaKPa(altitudM: number): number {
   return 101.325 * Math.pow(1 - 2.25577e-5 * altitudM, 5.25588);
+}
+
+/** Potencias normalizadas de motores eléctricos (IEC 60072), en kW. */
+export const MOTORES_IEC_KW = [
+  0.18, 0.25, 0.37, 0.55, 0.75, 1.1, 1.5, 2.2, 3, 4, 5.5, 7.5, 11, 15, 18.5, 22, 30, 37, 45, 55, 75, 90, 110, 132, 160,
+  200, 250, 315, 355, 400, 450, 500,
+];
+
+export function motorComercialKw(potenciaKw: number): number | null {
+  return MOTORES_IEC_KW.find((p) => p >= potenciaKw - 1e-9) ?? null;
 }
 
 // ── Ajuste polinómico ──────────────────────────────────────────────────────
@@ -160,29 +208,68 @@ export function ajustarPolinomio(x: readonly number[], y: readonly number[], gra
 // ── Sistema ────────────────────────────────────────────────────────────────
 
 export interface PerdidasTramo {
+  nombre: string;
+  caudalLs: number;
   velocidadMs: number;
+  /** Pendiente de fricción, m/km. */
+  pendienteMKm: number;
   friccionM: number;
   localizadaM: number;
+  fijaM: number;
   totalM: number;
   factorFriccion: number | null;
   reynolds: number | null;
 }
 
+/**
+ * Pérdidas de un tramo con el caudal total `caudalTotalLs` de la estación; si
+ * el tramo es de una bomba, lleva Q/n.
+ */
 export function perdidasTramo(
   tramo: TramoTuberia,
-  caudalLs: number,
-  metodo: MetodoPerdidaCarga,
-  temperaturaC: number
+  caudalTotalLs: number,
+  datos: Pick<DatosBombeo, "hid" | "bombasOperacion" | "caudalDisenoLs">
 ): PerdidasTramo {
+  const n = Math.max(1, datos.bombasOperacion);
+  const caudalLs = tramo.porBomba ? caudalTotalLs / n : caudalTotalLs;
+  const fijaM = tramo.perdidaFijaM * (caudalTotalLs / datos.caudalDisenoLs) ** 2;
   if (caudalLs <= 0) {
-    return { velocidadMs: 0, friccionM: 0, localizadaM: 0, totalM: 0, factorFriccion: null, reynolds: null };
+    return {
+      nombre: tramo.nombre,
+      caudalLs: 0,
+      velocidadMs: 0,
+      pendienteMKm: 0,
+      friccionM: 0,
+      localizadaM: 0,
+      fijaM: 0,
+      totalM: 0,
+      factorFriccion: null,
+      reynolds: null,
+    };
   }
-  const r = calcularPerdidaCarga({ metodo, caudalLs, temperaturaC, ...tramo });
+  const { hid } = datos;
+  const r = calcularPerdidaCarga({
+    metodo: hid.metodo,
+    caudalLs,
+    temperaturaC: hid.temperaturaC,
+    g: hid.g,
+    hazenCoef: hid.hazenCoef,
+    hazenExp: hid.hazenExp,
+    longitudM: tramo.longitudM,
+    diametroMm: tramo.diametroMm,
+    rugosidadMm: tramo.rugosidadMm,
+    hazenC: tramo.hazenC,
+    sumaK: tramo.sumaK,
+  });
   return {
+    nombre: tramo.nombre,
+    caudalLs,
     velocidadMs: r.velocidadMs,
+    pendienteMKm: r.pendienteHidraulica * 1000,
     friccionM: r.perdidaFriccionM,
     localizadaM: r.perdidaLocalizadaM,
-    totalM: r.perdidaTotalM,
+    fijaM,
+    totalM: r.perdidaTotalM + fijaM,
     factorFriccion: r.factorFriccion,
     reynolds: r.reynolds,
   };
@@ -192,56 +279,65 @@ export function alturaEstatica(datos: DatosBombeo, cotaAguaM: number): number {
   return datos.cotaDescargaM - cotaAguaM + datos.presionDescargaM;
 }
 
-export function alturaSistema(datos: DatosBombeo, cotaAguaM: number, caudalLs: number): number {
-  const imp = perdidasTramo(datos.impulsion, caudalLs, datos.metodo, datos.temperaturaC).totalM;
-  const suc =
+export function perdidasSistema(datos: DatosBombeo, caudalTotalLs: number) {
+  const impulsion = datos.impulsion.map((t) => perdidasTramo(t, caudalTotalLs, datos));
+  const succion =
     datos.tipo === "aspiracion" && datos.succion
-      ? perdidasTramo(datos.succion, caudalLs, datos.metodo, datos.temperaturaC).totalM
-      : 0;
-  return alturaEstatica(datos, cotaAguaM) + imp + suc;
+      ? perdidasTramo({ ...datos.succion, porBomba: true }, caudalTotalLs, datos)
+      : null;
+  const totalM = impulsion.reduce((s, t) => s + t.totalM, 0) + (succion?.totalM ?? 0);
+  return { impulsion, succion, totalM };
 }
 
-export function npshDisponible(datos: DatosBombeo, cotaAguaM: number, caudalLs: number) {
-  const gamma = (densidadAgua(datos.temperaturaC) * G) / 1000; // kN/m³
+export function alturaSistema(datos: DatosBombeo, cotaAguaM: number, caudalTotalLs: number): number {
+  return alturaEstatica(datos, cotaAguaM) + perdidasSistema(datos, caudalTotalLs).totalM;
+}
+
+/** NPSH disponible con el caudal de una bomba `caudalBombaLs`. */
+export function npshDisponible(datos: DatosBombeo, cotaAguaM: number, caudalBombaLs: number) {
+  const gamma = (datos.hid.densidad * datos.hid.g) / 1000; // kN/m³
   const patmM = presionAtmosfericaKPa(datos.altitudMsnm) / gamma;
-  const pvM = presionVaporKPa(datos.temperaturaC) / gamma;
+  const pvM = presionVaporKPa(datos.hid.temperaturaC) / gamma;
   const alturaAspiracionM = datos.cotaEjeBombaM - cotaAguaM;
+  const n = Math.max(1, datos.bombasOperacion);
   const hfSuccionM = datos.succion
-    ? perdidasTramo(datos.succion, caudalLs, datos.metodo, datos.temperaturaC).totalM
+    ? perdidasTramo({ ...datos.succion, porBomba: true }, caudalBombaLs * n, datos).totalM
     : 0;
   return { patmM, pvM, alturaAspiracionM, hfSuccionM, npshdM: patmM - pvM - alturaAspiracionM - hfSuccionM };
 }
 
 // ── Resultado ──────────────────────────────────────────────────────────────
 
-export type NivelPozo = "minimo" | "maximo";
+export type NivelPozo = "minimo" | "medio" | "maximo";
 
-export interface ResultadoNivel {
+export interface AlturaNivel {
   nivel: NivelPozo;
   cotaAguaM: number;
   alturaEstaticaM: number;
-  /** Altura manométrica total con el caudal de diseño. */
-  diseno: {
-    caudalLs: number;
-    impulsion: PerdidasTramo;
-    succion: PerdidasTramo | null;
-    alturaTotalM: number;
-  };
+  perdidas: ReturnType<typeof perdidasSistema>;
+  alturaTotalM: number;
+}
+
+export interface OperacionNivel {
+  nivel: "minimo" | "maximo";
+  cotaAguaM: number;
   /** null si la curva de la bomba no corta la del sistema dentro de su rango. */
   operacion: {
-    caudalLs: number;
+    caudalTotalLs: number;
+    caudalBombaLs: number;
     alturaM: number;
-    rendimientoPct: number | null;
+    rendimientoPct: number;
     potenciaHidraulicaKw: number;
-    potenciaEjeKw: number | null;
+    potenciaEjeKw: number;
+    potenciaMotorKw: number;
     enRango: boolean;
   } | null;
   motivoSinOperacion: string | null;
-  npsh: (ReturnType<typeof npshDisponible> & { npshrM: number | null; cumple: boolean | null }) | null;
+  npsh: (ReturnType<typeof npshDisponible> & { npshrM: number | null; cumple: boolean | null; caudalBombaLs: number }) | null;
   sumergencia: { disponibleM: number; requeridaM: number; cumple: boolean } | null;
 }
 
-export interface ResultadoBombeo {
+export interface ResultadoCurva {
   ajusteH: Polinomio;
   ajusteRendimiento: Polinomio | null;
   ajusteNpshr: Polinomio | null;
@@ -249,9 +345,29 @@ export interface ResultadoBombeo {
   caudalMaxCurvaLs: number;
   caudalBepLs: number | null;
   rendimientoBepPct: number | null;
+  /** Rango recomendado por bomba. */
   rangoRecomendadoLs: [number, number];
   rangoSegun: "bep" | "curva";
-  niveles: Record<NivelPozo, ResultadoNivel>;
+  /** Altura que da la bomba con el caudal de diseño por bomba. */
+  alturaBombaDisenoM: number;
+}
+
+export interface ResultadoBombeo {
+  caudalBombaLs: number;
+  bombasReserva: number;
+  alturas: Record<NivelPozo, AlturaNivel>;
+  alturaAjustadaM: number;
+  diseno: {
+    rendimientoPct: number;
+    rendimientoDeCurva: boolean;
+    potenciaHidraulicaKw: number;
+    potenciaEjeKw: number;
+    potenciaMotorKw: number;
+    potenciaTotalKw: number;
+    motorComercialKw: number | null;
+  };
+  curva: ResultadoCurva | null;
+  niveles: Record<"minimo" | "maximo", OperacionNivel>;
   avisos: string[];
 }
 
@@ -284,11 +400,12 @@ function buscarInterseccion(f: (q: number) => number, a: number, b: number): num
   return null;
 }
 
-export function calcularBombeo(datos: DatosBombeo): ResultadoBombeo {
+/** Curva Q-H por bomba ajustada; null si no hay puntos suficientes. */
+function ajustarCurva(datos: DatosBombeo): ResultadoCurva | null {
   const puntos = [...datos.curvaBomba].sort((p, q) => p.caudalLs - q.caudalLs);
+  if (puntos.length < datos.gradoAjuste + 1) return null;
   const qs = puntos.map((p) => p.caudalLs);
   const ajusteH = ajustarPolinomio(qs, puntos.map((p) => p.alturaM), datos.gradoAjuste);
-
   const conEta = puntos.filter((p) => p.rendimientoPct !== null);
   const ajusteRendimiento =
     conEta.length >= datos.gradoAjuste + 1
@@ -299,15 +416,12 @@ export function calcularBombeo(datos: DatosBombeo): ResultadoBombeo {
     conNpsh.length >= 2
       ? ajustarPolinomio(conNpsh.map((p) => p.caudalLs), conNpsh.map((p) => p.npshrM as number), Math.min(2, conNpsh.length - 1))
       : null;
-
   const qMin = qs[0];
   const qMax = qs[qs.length - 1];
-  const avisos: string[] = [];
 
   let caudalBepLs: number | null = null;
   let rendimientoBepPct: number | null = null;
   if (ajusteRendimiento) {
-    // Máximo del rendimiento ajustado, muestreado sobre el rango de la curva.
     for (let i = 0; i <= 400; i++) {
       const q = qMin + ((qMax - qMin) * i) / 400;
       const eta = evaluarPolinomio(ajusteRendimiento.coef, q);
@@ -317,116 +431,6 @@ export function calcularBombeo(datos: DatosBombeo): ResultadoBombeo {
       }
     }
   }
-  const rangoRecomendadoLs: [number, number] =
-    caudalBepLs !== null ? [0.7 * caudalBepLs, 1.2 * caudalBepLs] : [qMin, qMax];
-
-  const hBomba = (q: number) => evaluarPolinomio(ajusteH.coef, q);
-  const rendimiento = (q: number) => {
-    if (!ajusteRendimiento) return null;
-    const eta = evaluarPolinomio(ajusteRendimiento.coef, q);
-    return Math.min(100, Math.max(0, eta));
-  };
-  const npshr = (q: number) =>
-    ajusteNpshr ? Math.max(0, evaluarPolinomio(ajusteNpshr.coef, q)) : datos.npshrManualM;
-  const rho = densidadAgua(datos.temperaturaC);
-
-  const calcularNivel = (nivel: NivelPozo): ResultadoNivel => {
-    const cotaAguaM = nivel === "minimo" ? datos.cotaNivelMinimoM : datos.cotaNivelMaximoM;
-    const hEst = alturaEstatica(datos, cotaAguaM);
-    const imp = perdidasTramo(datos.impulsion, datos.caudalDisenoLs, datos.metodo, datos.temperaturaC);
-    const suc =
-      datos.tipo === "aspiracion" && datos.succion
-        ? perdidasTramo(datos.succion, datos.caudalDisenoLs, datos.metodo, datos.temperaturaC)
-        : null;
-
-    const f = (q: number) => hBomba(q) - alturaSistema(datos, cotaAguaM, q);
-    const qOp = buscarInterseccion(f, qMin, qMax);
-    let motivoSinOperacion: string | null = null;
-    let operacion: ResultadoNivel["operacion"] = null;
-    if (qOp === null) {
-      motivoSinOperacion =
-        f(qMax) > 0
-          ? "La bomba da más altura que la que pide el sistema en todo el rango cargado: el punto de operación queda a la derecha de la curva (caudal mayor al último punto). Cargá más puntos o elegí otra bomba."
-          : "La bomba no llega a la altura que pide el sistema en el rango cargado: no hay punto de operación. Elegí una bomba de más altura.";
-    } else {
-      const hOp = hBomba(qOp);
-      const eta = rendimiento(qOp);
-      const pHid = (rho * G * (qOp / 1000) * hOp) / 1000;
-      operacion = {
-        caudalLs: qOp,
-        alturaM: hOp,
-        rendimientoPct: eta,
-        potenciaHidraulicaKw: pHid,
-        potenciaEjeKw: eta && eta > 0 ? pHid / (eta / 100) : null,
-        enRango: qOp >= rangoRecomendadoLs[0] && qOp <= rangoRecomendadoLs[1],
-      };
-    }
-
-    const qNpsh = operacion?.caudalLs ?? datos.caudalDisenoLs;
-    let npsh: ResultadoNivel["npsh"] = null;
-    let sumergencia: ResultadoNivel["sumergencia"] = null;
-    if (datos.tipo === "aspiracion") {
-      const d = npshDisponible(datos, cotaAguaM, qNpsh);
-      const req = npshr(qNpsh);
-      npsh = { ...d, npshrM: req, cumple: req === null ? null : d.npshdM >= req + datos.margenNpshM };
-    } else {
-      const disponibleM = cotaAguaM - datos.cotaAdmisionM;
-      sumergencia = {
-        disponibleM,
-        requeridaM: datos.sumergenciaMinimaM,
-        cumple: disponibleM >= datos.sumergenciaMinimaM,
-      };
-    }
-
-    return {
-      nivel,
-      cotaAguaM,
-      alturaEstaticaM: hEst,
-      diseno: {
-        caudalLs: datos.caudalDisenoLs,
-        impulsion: imp,
-        succion: suc,
-        alturaTotalM: hEst + imp.totalM + (suc?.totalM ?? 0),
-      },
-      operacion,
-      motivoSinOperacion,
-      npsh,
-      sumergencia,
-    };
-  };
-
-  const niveles = { minimo: calcularNivel("minimo"), maximo: calcularNivel("maximo") };
-
-  for (const n of [niveles.minimo, niveles.maximo]) {
-    const etiqueta = n.nivel === "minimo" ? "nivel mínimo" : "nivel máximo";
-    if (n.operacion && !n.operacion.enRango) {
-      avisos.push(
-        `Con ${etiqueta} el punto de operación (Q = ${fmt(n.operacion.caudalLs, 1)} L/s) queda fuera del rango recomendado de la bomba (${fmt(rangoRecomendadoLs[0], 1)} a ${fmt(rangoRecomendadoLs[1], 1)} L/s).`
-      );
-    }
-    if (n.npsh && n.npsh.cumple === false) {
-      avisos.push(`Con ${etiqueta} el NPSH disponible no alcanza al requerido más el margen: riesgo de cavitación.`);
-    }
-    if (n.sumergencia && !n.sumergencia.cumple) {
-      avisos.push(`Con ${etiqueta} la sumergencia sobre la admisión es menor que la mínima del fabricante.`);
-    }
-  }
-  if (datos.tipo === "aspiracion" && !ajusteNpshr && datos.npshrManualM === null) {
-    avisos.push("Sin NPSHr (ni en la curva ni cargado a mano) no se puede verificar la cavitación.");
-  }
-  if (datos.tipo === "aspiracion" && niveles.minimo.npsh && niveles.minimo.npsh.alturaAspiracionM > 7) {
-    avisos.push("La altura de aspiración supera los 7 m: en la práctica una bomba de superficie difícilmente aspire más.");
-  }
-  for (let i = 1; i < puntos.length; i++) {
-    if (puntos[i].alturaM > puntos[i - 1].alturaM + 1e-9) {
-      avisos.push("La curva Q-H cargada no es decreciente en todo el rango; revisá los puntos (una curva inestable puede dar dos puntos de operación).");
-      break;
-    }
-  }
-  if (ajusteH.r2 < 0.98) {
-    avisos.push(`El ajuste de la curva Q-H es pobre (R² = ${fmt(ajusteH.r2, 3)}). Revisá los puntos o probá con otro grado.`);
-  }
-
   return {
     ajusteH,
     ajusteRendimiento,
@@ -435,8 +439,160 @@ export function calcularBombeo(datos: DatosBombeo): ResultadoBombeo {
     caudalMaxCurvaLs: qMax,
     caudalBepLs,
     rendimientoBepPct,
-    rangoRecomendadoLs,
+    rangoRecomendadoLs: caudalBepLs !== null ? [0.7 * caudalBepLs, 1.2 * caudalBepLs] : [qMin, qMax],
     rangoSegun: caudalBepLs !== null ? "bep" : "curva",
+    alturaBombaDisenoM: evaluarPolinomio(ajusteH.coef, datos.caudalDisenoLs / Math.max(1, datos.bombasOperacion)),
+  };
+}
+
+export function calcularBombeo(datos: DatosBombeo): ResultadoBombeo {
+  const n = Math.max(1, datos.bombasOperacion);
+  const { hid } = datos;
+  const caudalBombaLs = datos.caudalDisenoLs / n;
+  const avisos: string[] = [];
+
+  const altura = (nivel: NivelPozo): AlturaNivel => {
+    const cotaAguaM =
+      nivel === "minimo"
+        ? datos.cotaNivelMinimoM
+        : nivel === "maximo"
+          ? datos.cotaNivelMaximoM
+          : (datos.cotaNivelMinimoM + datos.cotaNivelMaximoM) / 2;
+    const perdidas = perdidasSistema(datos, datos.caudalDisenoLs);
+    const alturaEstaticaM = alturaEstatica(datos, cotaAguaM);
+    return { nivel, cotaAguaM, alturaEstaticaM, perdidas, alturaTotalM: alturaEstaticaM + perdidas.totalM };
+  };
+  // "minimo" es el nivel mínimo del agua, que da la altura MÁXIMA de bombeo.
+  const alturas = { minimo: altura("minimo"), medio: altura("medio"), maximo: altura("maximo") };
+  const hMax = alturas.minimo.alturaTotalM;
+
+  const curva = ajustarCurva(datos);
+  const hBomba = (qBomba: number) => (curva ? evaluarPolinomio(curva.ajusteH.coef, qBomba) : NaN);
+  const etaCurva = (qBomba: number) =>
+    curva?.ajusteRendimiento ? Math.min(100, Math.max(0, evaluarPolinomio(curva.ajusteRendimiento.coef, qBomba))) : null;
+  const etaDe = (qBomba: number) => etaCurva(qBomba) ?? datos.rendimientoBombaPct;
+  const potencias = (qBomba: number, h: number) => {
+    const eta = etaDe(qBomba);
+    const hidKw = (hid.densidad * hid.g * (qBomba / 1000) * h) / 1000;
+    const eje = hidKw / (eta / 100);
+    return { eta, hidKw, eje, motor: eje / (datos.rendimientoMotorPct / 100) };
+  };
+
+  const pd = potencias(caudalBombaLs, hMax);
+  const diseno = {
+    rendimientoPct: pd.eta,
+    rendimientoDeCurva: etaCurva(caudalBombaLs) !== null,
+    potenciaHidraulicaKw: pd.hidKw,
+    potenciaEjeKw: pd.eje,
+    potenciaMotorKw: pd.motor,
+    potenciaTotalKw: pd.motor * n,
+    motorComercialKw: motorComercialKw(pd.motor),
+  };
+
+  const npshr = (qBomba: number) =>
+    curva?.ajusteNpshr ? Math.max(0, evaluarPolinomio(curva.ajusteNpshr.coef, qBomba)) : datos.npshrManualM;
+
+  const operar = (nivel: "minimo" | "maximo"): OperacionNivel => {
+    const cotaAguaM = nivel === "minimo" ? datos.cotaNivelMinimoM : datos.cotaNivelMaximoM;
+    let operacion: OperacionNivel["operacion"] = null;
+    let motivoSinOperacion: string | null = null;
+    if (curva) {
+      const f = (qTotal: number) => hBomba(qTotal / n) - alturaSistema(datos, cotaAguaM, qTotal);
+      const qOp = buscarInterseccion(f, curva.caudalMinCurvaLs * n, curva.caudalMaxCurvaLs * n);
+      if (qOp === null) {
+        motivoSinOperacion =
+          f(curva.caudalMaxCurvaLs * n) > 0
+            ? "La bomba da más altura que la que pide el sistema en todo el rango cargado: el punto de operación queda a la derecha de la curva (caudal mayor al último punto). Cargá más puntos o elegí otra bomba."
+            : "La bomba no llega a la altura que pide el sistema en el rango cargado: no hay punto de operación. Elegí una bomba de más altura o agregá bombas en operación.";
+      } else {
+        const qb = qOp / n;
+        const h = hBomba(qb);
+        const p = potencias(qb, h);
+        operacion = {
+          caudalTotalLs: qOp,
+          caudalBombaLs: qb,
+          alturaM: h,
+          rendimientoPct: p.eta,
+          potenciaHidraulicaKw: p.hidKw,
+          potenciaEjeKw: p.eje,
+          potenciaMotorKw: p.motor,
+          enRango: qb >= curva.rangoRecomendadoLs[0] && qb <= curva.rangoRecomendadoLs[1],
+        };
+      }
+    }
+    const qNpsh = operacion?.caudalBombaLs ?? caudalBombaLs;
+    let npsh: OperacionNivel["npsh"] = null;
+    let sumergencia: OperacionNivel["sumergencia"] = null;
+    if (datos.tipo === "aspiracion") {
+      const d = npshDisponible(datos, cotaAguaM, qNpsh);
+      const req = npshr(qNpsh);
+      npsh = { ...d, npshrM: req, cumple: req === null ? null : d.npshdM >= req + datos.margenNpshM, caudalBombaLs: qNpsh };
+    } else {
+      const disponibleM = cotaAguaM - datos.cotaAdmisionM;
+      sumergencia = { disponibleM, requeridaM: datos.sumergenciaMinimaM, cumple: disponibleM >= datos.sumergenciaMinimaM };
+    }
+    return { nivel, cotaAguaM, operacion, motivoSinOperacion, npsh, sumergencia };
+  };
+  const niveles = { minimo: operar("minimo"), maximo: operar("maximo") };
+
+  // Avisos
+  for (const t of alturas.minimo.perdidas.impulsion) {
+    if (t.velocidadMs > 0 && (t.velocidadMs < 0.6 || t.velocidadMs > 2.5)) {
+      avisos.push(
+        `Velocidad de ${fmt(t.velocidadMs, 2)} m/s en «${t.nombre}», fuera del rango habitual de 0,6 a 2,5 m/s${t.velocidadMs < 0.6 ? " (riesgo de sedimentación con líquidos con sólidos)" : " (pérdidas y golpe de ariete altos)"}.`
+      );
+    }
+  }
+  for (const nv of [niveles.minimo, niveles.maximo]) {
+    const etiqueta = nv.nivel === "minimo" ? "nivel mínimo" : "nivel máximo";
+    if (nv.operacion && curva && !nv.operacion.enRango) {
+      avisos.push(
+        `Con ${etiqueta} cada bomba opera con Q = ${fmt(nv.operacion.caudalBombaLs, 1)} L/s, fuera del rango recomendado (${fmt(curva.rangoRecomendadoLs[0], 1)} a ${fmt(curva.rangoRecomendadoLs[1], 1)} L/s).`
+      );
+    }
+    if (nv.npsh && nv.npsh.cumple === false) {
+      avisos.push(`Con ${etiqueta} el NPSH disponible no alcanza al requerido más el margen: riesgo de cavitación.`);
+    }
+    if (nv.sumergencia && !nv.sumergencia.cumple) {
+      avisos.push(`Con ${etiqueta} la sumergencia sobre la admisión es menor que la mínima.`);
+    }
+  }
+  if (curva && curva.alturaBombaDisenoM < alturas.minimo.alturaTotalM * datos.coefSeguridad - 1e-9) {
+    avisos.push(
+      `Con el caudal de diseño por bomba la curva da ${fmt(curva.alturaBombaDisenoM, 2)} m, menos que la altura ajustada de ${fmt(alturas.minimo.alturaTotalM * datos.coefSeguridad, 2)} m.`
+    );
+  }
+  if (datos.tipo === "aspiracion" && !curva?.ajusteNpshr && datos.npshrManualM === null) {
+    avisos.push("Sin NPSHr (ni en la curva ni cargado a mano) no se puede verificar la cavitación.");
+  }
+  if (datos.tipo === "aspiracion" && niveles.minimo.npsh && niveles.minimo.npsh.alturaAspiracionM > 7) {
+    avisos.push("La altura de aspiración supera los 7 m: en la práctica una bomba de superficie difícilmente aspire más.");
+  }
+  if (curva) {
+    const pts = [...datos.curvaBomba].sort((p, q) => p.caudalLs - q.caudalLs);
+    for (let i = 1; i < pts.length; i++) {
+      if (pts[i].alturaM > pts[i - 1].alturaM + 1e-9) {
+        avisos.push("La curva Q-H cargada no es decreciente en todo el rango; revisá los puntos (una curva inestable puede dar dos puntos de operación).");
+        break;
+      }
+    }
+    if (curva.ajusteH.r2 < 0.98) {
+      avisos.push(`El ajuste de la curva Q-H es pobre (R² = ${fmt(curva.ajusteH.r2, 3)}). Revisá los puntos o probá con otro grado.`);
+    }
+  }
+  if (datos.bombasInstaladas < datos.bombasOperacion) {
+    avisos.push("Hay más bombas en operación que instaladas.");
+  } else if (datos.bombasInstaladas === datos.bombasOperacion) {
+    avisos.push("No queda ninguna bomba de reserva: lo habitual es al menos una (n + 1).");
+  }
+
+  return {
+    caudalBombaLs,
+    bombasReserva: Math.max(0, datos.bombasInstaladas - datos.bombasOperacion),
+    alturas,
+    alturaAjustadaM: hMax * datos.coefSeguridad,
+    diseno,
+    curva,
     niveles,
     avisos,
   };
@@ -457,6 +613,7 @@ export const COLUMNAS_CURVA_BOMBA: readonly EspecColumna[] = [
   { clave: "npshrM", nombre: "npshr_m", alias: ["npshr", "npsh", "npsh_r", "npsh_requerido"], obligatoria: false, tipo: "numero" },
 ];
 
+/** Valida la curva; una tabla vacía es válida y significa "sin curva todavía". */
 export function validarCurvaBomba(
   filas: readonly string[][],
   grado: number,
@@ -464,7 +621,10 @@ export function validarCurvaBomba(
 ): { puntos: PuntoBomba[] | null; errores: string[] } {
   const errores: string[] = [];
   const puntos: PuntoBomba[] = [];
+  const conDatos = filas.filter((f) => f.some((c) => (c ?? "").trim() !== ""));
+  if (conDatos.length === 0) return { puntos: [], errores: [] };
   filas.forEach((fila, i) => {
+    if (!fila.some((c) => (c ?? "").trim() !== "")) return;
     const n = numeroFila(i);
     const leer = (j: number, nombre: string, obligatorio: boolean) => {
       const texto = fila[j] ?? "";
