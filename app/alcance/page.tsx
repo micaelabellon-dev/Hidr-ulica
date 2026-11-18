@@ -67,6 +67,24 @@ export default function AlcancePage() {
             pequeña. El tirante es el normal, el que se alcanza lejos de cualquier control de aguas
             abajo: no corresponde a un resalto, una curva ni una transición de sección.
           </p>
+          <p>
+            <strong className="text-foreground">Bombeo desde pozo.</strong> Mismas hipótesis que la
+            pérdida de carga para la impulsión y la succión. La curva de la bomba es un ajuste
+            polinómico de los puntos de catálogo que se cargan y no se extrapola fuera de ellos. El
+            punto de operación se busca con los niveles mínimo y máximo del pozo como valores fijos:
+            no se modela el descenso del nivel por el propio bombeo, que hay que incluir en el
+            nivel mínimo. El NPSH disponible usa la atmósfera estándar según la altitud y la
+            presión de vapor del agua según la temperatura; el margen sobre el NPSHr lo fija quien
+            calcula. La sumergencia mínima de una bomba sumergible es la del fabricante.
+          </p>
+          <p>
+            <strong className="text-foreground">Balance hídrico de embalse.</strong> Continuidad
+            pura en cada paso, sin tránsito de crecidas: los caudales son medios del paso y la
+            lluvia y la evaporación se aplican sobre el área del espejo correspondiente al volumen
+            medio del paso, interpolada linealmente en la curva cota-área-volumen. Lo que supera
+            el volumen máximo vierte en el mismo paso, sin laminación; lo que falta para no bajar
+            del volumen mínimo se informa como déficit, sin repartirlo entre los distintos usos.
+          </p>
         </div>
       </section>
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 
 /**
@@ -86,4 +86,25 @@ export function restablecerCampos(ruta: string) {
     // Si el almacenamiento no está disponible igual conviene refrescar la pantalla.
   }
   window.dispatchEvent(new Event(EVENTO_CAMBIO));
+}
+
+/**
+ * Tabla editable que se recuerda igual que un campo: se guarda como JSON de
+ * celdas de texto, para que lo que se está tipeando ("3," o "-") no se pierda
+ * al convertir a número.
+ */
+export function useTabla(nombre: string, inicial: string[][]): [string[][], (filas: string[][]) => void] {
+  const inicialJson = useMemo(() => JSON.stringify(inicial), [inicial]);
+  const [json, setJson] = useCampoBase(nombre, inicialJson);
+  const filas = useMemo(() => {
+    try {
+      const v: unknown = JSON.parse(json);
+      if (Array.isArray(v) && v.every((f) => Array.isArray(f))) return v as string[][];
+    } catch {
+      // Si lo guardado está corrupto se vuelve a la tabla por defecto.
+    }
+    return inicial;
+  }, [json, inicial]);
+  const guardar = useCallback((nuevas: string[][]) => setJson(JSON.stringify(nuevas)), [setJson]);
+  return [filas, guardar];
 }

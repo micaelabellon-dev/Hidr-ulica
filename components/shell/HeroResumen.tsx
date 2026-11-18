@@ -32,8 +32,8 @@ export function HeroResumen() {
           </h1>
 
           <p className="mt-4 text-sm leading-relaxed text-white/70">
-            Pérdida de carga en tuberías y tirante normal en canales con Manning, con la
-            sustitución numérica a la vista para poder rehacerla a mano.
+            Pérdida de carga, bombeo desde pozos, canales con Manning y balance de embalses,
+            con la sustitución numérica a la vista para poder rehacerla a mano.
           </p>
 
           <dl className="mt-8 flex flex-wrap gap-x-10 gap-y-4 border-t border-white/10 pt-6">
@@ -46,9 +46,11 @@ export function HeroResumen() {
               </dt>
             </div>
             <div>
-              <dd className="font-mono text-2xl font-medium">2</dd>
+              <dd className="font-mono text-2xl font-medium">
+                {String(new Set(registroCalculadoras.map((c) => c.categoria)).size).padStart(2, "0")}
+              </dd>
               <dt className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/50">
-                Regímenes de flujo
+                Áreas de cálculo
               </dt>
             </div>
             <div>
