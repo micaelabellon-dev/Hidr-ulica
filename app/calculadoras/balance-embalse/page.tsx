@@ -11,10 +11,15 @@ import { PanelFormulas } from "@/components/calculadoras/comun/PanelFormulas";
 import { PanelMetricas } from "@/components/calculadoras/comun/PanelMetricas";
 import { filasDeErrores, TablaEditable } from "@/components/calculadoras/comun/TablaEditable";
 import { GraficoLineas } from "@/components/calculadoras/graficos/GraficoLineas";
+import { PanelSensibilidad } from "@/components/calculadoras/embalse/PanelSensibilidad";
+import { PanelTemez } from "@/components/calculadoras/embalse/PanelTemez";
+import { aguaDisponiblePonderada, calcularTemez, PARAMETROS_TEMEZ_URUGUAY, type PasoTemez } from "@/lib/calc/hidraulica/temez";
 import {
+  agregarDiarioAMensual,
+  areaDeVolumen,
   calcularBalance,
   COLUMNAS_CURVA,
-  COLUMNAS_SERIE,
+  especsSerie,
   convertirCaudalSerie,
   cotaDeVolumen,
   CUATRIMESTRES,
@@ -35,6 +40,8 @@ import {
   type Percentil,
   type PuntoCurva,
   type RegistroSerie,
+  type ColumnasRequeridas,
+  type DatosBalance,
   type UnidadCaudalSerie,
 } from "@/lib/calc/hidraulica/balance-embalse";
 import { descargarCsv, descargarXlsx, fechaDeCelda, numeroDeCelda, type TablaSalida } from "@/lib/calculadoras/tablas";
@@ -115,9 +122,16 @@ function plantillaSerie(paso: PasoTiempo, unidad: UnidadCaudalSerie): TablaSalid
   return [
     {
       hoja: `Serie ${paso}`,
-      encabezados: ["fecha", `aporte_${col}`, "precipitacion_mm", "evaporacion_mm", `demanda_${col}`],
-      filas: filas.map(([f, ap, p, e, ex]) => [fechaUtc(f), aUnidad(f, ap), numeroDeCelda(p), numeroDeCelda(e), aUnidad(f, ex)]),
-      formatos: [paso === "mensual" ? "yyyy-mm" : "yyyy-mm-dd", unidad === "m3s" ? "0.00" : "0", "0.0", "0.0", unidad === "m3s" ? "0.00" : "0"],
+      encabezados: ["fecha", `aporte_${col}`, "precipitacion_mm", "evaporacion_mm", `demanda_${col}`, "etp_mm"],
+      filas: filas.map(([f, ap, p, e, ex, etp]) => [
+        fechaUtc(f),
+        aUnidad(f, ap),
+        numeroDeCelda(p),
+        numeroDeCelda(e),
+        aUnidad(f, ex),
+        numeroDeCelda(etp ?? ""),
+      ]),
+      formatos: [paso === "mensual" ? "yyyy-mm" : "yyyy-mm-dd", unidad === "m3s" ? "0.00" : "0", "0.0", "0.0", unidad === "m3s" ? "0.00" : "0", "0.0"],
     },
     {
       hoja: "Instrucciones",
@@ -127,7 +141,8 @@ function plantillaSerie(paso: PasoTiempo, unidad: UnidadCaudalSerie): TablaSalid
         ["aporte", "Aporte de la cuenca al embalse en el paso", "m3/s, L/s o m3 del paso: se lee del encabezado (aporte_m3s, aporte_ls, aporte_m3_mes)"],
         ["precipitacion_mm", "Lámina de lluvia sobre el espejo de agua", lamina],
         ["evaporacion_mm", "Lámina evaporada de tanque (la calculadora aplica el coeficiente de tanque)", lamina],
-        ["demanda", "Volumen o caudal a suministrar en el paso", "igual que el aporte"],
+        ["demanda", "Volumen o caudal a suministrar en el paso (se puede dejar vacía si la demanda es constante)", "igual que el aporte"],
+        ["etp_mm", "Evapotranspiración potencial de la cuenca, sólo para el modelo de Témez (opcional)", lamina],
         ["", "Sin celdas vacías ni valores negativos. Los encabezados pueden llevar tildes o mayúsculas.", ""],
       ],
     },
@@ -242,6 +257,19 @@ function duracionDeFila(fecha: string, paso: PasoTiempo): number | null {
   return duracionPasoS(`${f.anio}-${String(f.mes).padStart(2, "0")}-01`, paso);
 }
 
+/** Unidades de suelo de ejemplo (CRSU 1:1.000.000) con su agua disponible; reemplazar por las de la cuenca. */
+const SUELOS_EJEMPLO: string[][] = [
+  ["San Jacinto (SJc)", "5425", "83,1"],
+  ["Chapicuy (Ch)", "1880", "100,1"],
+  ["Tala-Rodríguez (Tl-Rd)", "7", "130,9"],
+];
+
+const COLUMNAS_SUELOS = [
+  { titulo: "Unidad de suelo", texto: true },
+  { titulo: "Área", sufijo: "ha" },
+  { titulo: "AD", sufijo: "mm" },
+];
+
 const FACTORES_INICIALES = JSON.stringify(
   PERCENTILES.map((p) => FACTORES_PERCENTIL_S_SE[p].map((x) => textoNumero(x)))
 );
@@ -284,6 +312,25 @@ export default function BalanceEmbalsePage() {
 
   const [pasoDetalleTexto, setPasoDetalle] = useCampo("pasoDetalle", "1");
 
+  // Aporte (serie o Témez) y demanda (serie o constante)
+  const [aporteFuente, setAporteFuente] = useCampo("aporteFuente", "Serie cargada");
+  const usaTemez = paso === "mensual" && aporteFuente === "Modelo de Témez";
+  const [demandaModo, setDemandaModo] = useCampo("demandaModo", "De la serie");
+  const demandaConstante = demandaModo === "Constante";
+  const [demandaConstTexto, setDemandaConst] = useCampo(`demandaConst-${paso}`, paso === "mensual" ? "2" : "3");
+  const [suelos, setSuelos] = useTabla("tzSuelos", SUELOS_EJEMPLO);
+  const [tzCad, setTzCad] = useCampo("tzCad", "0,92");
+  const [tzCpo, setTzCpo] = useCampo("tzCpo", "0,3");
+  const [tzImax, setTzImax] = useCampo("tzImax", "386");
+  const [tzAlfa, setTzAlfa] = useCampo("tzAlfa", "0,0775");
+  const [tzH0, setTzH0] = useCampo("tzH0", "0");
+  const [tzV0, setTzV0] = useCampo("tzV0", "0");
+  const [tzDescontar, setTzDescontar] = useCampo("tzDescontar", "Sí");
+  const [qAnualTexto, setQAnual] = useCampo("qMedioAnual", "12,2");
+  const [anioHastaTexto, setAnioHasta] = useCampo("tzHasta", "2010");
+  const requeridas: ColumnasRequeridas = { aporte: !usaTemez, demanda: !demandaConstante, etp: usaTemez };
+  const especsSerieActual = especsSerie(requeridas);
+
   const factoresTexto: string[][] = useMemo(() => {
     try {
       const v = JSON.parse(factoresJson);
@@ -324,15 +371,49 @@ export default function BalanceEmbalsePage() {
           const n = numeroDeCelda(t);
           return n === null || Number.isNaN(n) ? t : textoNumero(convertirCaudalSerie(n, de, nueva, d), 6);
         };
-        return [fila[0], conv(fila[1] ?? ""), fila[2], fila[3], conv(fila[4] ?? "")];
+        return [fila[0], conv(fila[1] ?? ""), fila[2], fila[3], conv(fila[4] ?? ""), fila[5] ?? ""];
       })
     );
     setUnidadCaudalNombre(nombre);
   };
 
   // ── Importaciones con unidad en el encabezado
-  const importarSerie = (celdas: string[][], enc: Record<string, string>) => {
+  const importarSerie = (celdasArchivo: string[][], enc: Record<string, string>) => {
     const avisos: string[] = [];
+    const celdas = celdasArchivo;
+    // Datos diarios en una serie mensual: se agregan por mes (P suma; E y ETP promedio × días).
+    if (paso === "mensual") {
+      const meses = new Set(celdas.map((f) => (fechaDeCelda(f[0] ?? "") ? `${fechaDeCelda(f[0])!.anio}-${fechaDeCelda(f[0])!.mes}` : "")));
+      if (meses.size > 0 && celdas.length > meses.size * 1.5) {
+        const conv = (t: string, de: ReturnType<typeof unidadCaudalDeEncabezado>, d: number) => {
+          const n = numeroDeCelda(t);
+          if (!de || n === null || Number.isNaN(n)) return t;
+          return textoNumero(convertirCaudalSerie(n, de, unidadCaudal, d), 6);
+        };
+        const diarias = celdas.map((f) => [
+          f[0],
+          conv(f[1], unidadCaudalDeEncabezado(enc.aporte ?? ""), 86400),
+          f[2],
+          f[3],
+          conv(f[4], unidadCaudalDeEncabezado(enc.extraccion ?? ""), 86400),
+          f[5] ?? "",
+        ]);
+        const ag = agregarDiarioAMensual(diarias, unidadCaudal);
+        avisos.push(
+          `El archivo trae datos diarios: se agregaron ${celdas.length} días en ${ag.filas.length} meses (lluvia sumada; evaporación y ETP como promedio del mes × días).`
+        );
+        if (ag.faltantes.length) {
+          avisos.push(
+            `${ag.faltantes.length} meses tienen días sin dato, p. ej. ${ag.faltantes
+              .slice(0, 4)
+              .map((f) => `${f.mes} (P ${f.p}, E ${f.e}, ETP ${f.etp})`)
+              .join("; ")}. La lluvia de esos días no se rellena.`
+          );
+        }
+        setFilasSerie(ag.filas);
+        return { avisos };
+      }
+    }
     const destino = unidadCaudal;
     const unidades = { aporte: unidadCaudalDeEncabezado(enc.aporte ?? ""), extraccion: unidadCaudalDeEncabezado(enc.extraccion ?? "") };
     const convertidas = celdas.map((fila) => {
@@ -342,10 +423,11 @@ export default function BalanceEmbalsePage() {
         if (!de || d === null || n === null || Number.isNaN(n)) return t;
         return textoNumero(convertirCaudalSerie(n, de, destino, d), 6);
       };
-      return [fila[0], conv(fila[1], unidades.aporte), fila[2], fila[3], conv(fila[4], unidades.extraccion)];
+      return [fila[0], conv(fila[1], unidades.aporte), fila[2], fila[3], conv(fila[4], unidades.extraccion), fila[5] ?? ""];
     });
     const nombreUnidad = { m3s: "m³/s", ls: "L/s", m3: "m³ del paso", hm3: "hm³ del paso" } as const;
     for (const [col, u] of Object.entries(unidades)) {
+      if ((col === "aporte" && !requeridas.aporte && !enc.aporte) || (col === "extraccion" && !requeridas.demanda && !enc.extraccion)) continue;
       const nombre = col === "aporte" ? "el aporte" : "la demanda";
       if (u && !(u === "m3s" && destino === "m3s") && !(u === "m3" && destino === "volumen")) {
         avisos.push(`Convertí ${nombre} de ${nombreUnidad[u]} a ${sufijoCaudal(destino, paso)}, según el encabezado.`);
@@ -372,7 +454,11 @@ export default function BalanceEmbalsePage() {
   };
 
   // ── Validación
-  const validacionSerie = useMemo(() => validarSerie(filasSerie, paso), [filasSerie, paso]);
+  const validacionSerie = useMemo(
+    () => validarSerie(filasSerie, paso, undefined, requeridas),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [filasSerie, paso, requeridas.aporte, requeridas.demanda, requeridas.etp]
+  );
   const validacionCurvaPantalla = useMemo(() => validarCurva(filasCurva), [filasCurva]);
   const curva: PuntoCurva[] | null = useMemo(
     () =>
@@ -407,9 +493,9 @@ export default function BalanceEmbalsePage() {
   const infiltracionM3s = num(infiltracionTexto, "La infiltración");
   const coefEvap = num(coefEvapTexto, "El coeficiente de evaporación");
 
+  const areaKm2 = qambTipo === "Por percentil" || usaTemez ? num(areaCuencaTexto, "El área de la cuenca") : NaN;
   let qambPorMesM3s: number[] = Array(12).fill(NaN);
   if (qambTipo === "Por percentil") {
-    const areaKm2 = num(areaCuencaTexto, "El área de la cuenca");
     const qm = [qMedio0, qMedio1, qMedio2].map((t, i) => num(t, `El q medio de ${CUATRIMESTRES[i]}`)) as [number, number, number];
     const factores = Object.fromEntries(
       PERCENTILES.map((p, i) => [p, factoresTexto[i].map((t, j) => num(t, `El factor ${p} de ${CUATRIMESTRES[j]}`)) as [number, number, number]])
@@ -440,10 +526,63 @@ export default function BalanceEmbalsePage() {
     }
   }
 
-  const serie: RegistroSerie[] | null = validacionSerie.serie;
-  const resultado =
-    serie && curva && errores.length === 0
-      ? calcularBalance({
+  const demandaConst = demandaConstante ? num(demandaConstTexto, "La demanda constante") : NaN;
+
+  // ── Témez: aporte de la cuenca desde P y ETP
+  const erroresSuelos: string[] = [];
+  let temez: PasoTemez[] | null = null;
+  let areaEscurreM2 = NaN;
+  let adPonderado = NaN;
+  if (usaTemez) {
+    const unidades = suelos
+      .filter((f) => f.some((c) => (c ?? "").trim() !== ""))
+      .map((f, i) => {
+        const areaHa = numeroDeCelda(f[1] ?? "");
+        const adMm = numeroDeCelda(f[2] ?? "");
+        if (areaHa === null || Number.isNaN(areaHa) || areaHa <= 0) erroresSuelos.push(`Fila ${i + 1}: el área tiene que ser un número mayor que cero.`);
+        if (adMm === null || Number.isNaN(adMm) || adMm <= 0) erroresSuelos.push(`Fila ${i + 1}: el AD tiene que ser un número mayor que cero.`);
+        return { areaHa: areaHa ?? NaN, adMm: adMm ?? NaN };
+      });
+    if (unidades.length === 0) erroresSuelos.push("Cargá al menos una unidad de suelo con su AD.");
+    adPonderado = erroresSuelos.length ? NaN : aguaDisponiblePonderada(unidades);
+    const parametros = {
+      aguaDisponibleMm: adPonderado,
+      cad: num(tzCad, "El CAD de Témez"),
+      cpo: num(tzCpo, "El CPo de Témez"),
+      imaxMm: num(tzImax, "El Imax de Témez"),
+      alfaDia: num(tzAlfa, "El α de Témez"),
+      humedadInicialMm: num(tzH0, "La humedad inicial de Témez"),
+      almacenamientoInicialMm: num(tzV0, "El almacenamiento inicial de Témez"),
+    };
+    const serieV = validacionSerie.serie;
+    if (serieV && curva && erroresSuelos.length === 0 && errores.length === 0) {
+      areaEscurreM2 = areaKm2 * 1e6 - (tzDescontar === "Sí" ? areaDeVolumen(curva, vMax) * 1e4 : 0);
+      temez = calcularTemez(
+        serieV.map((r) => ({
+          fecha: r.fecha,
+          dias: duracionPasoS(r.fecha, paso) / 86400,
+          precipitacionMm: r.precipitacionMm,
+          etpMm: r.etpMm ?? NaN,
+        })),
+        parametros
+      );
+    }
+  }
+
+  const serie: RegistroSerie[] | null =
+    validacionSerie.serie && (!usaTemez || temez)
+      ? validacionSerie.serie.map((r, i) => {
+          const m3 = temez ? (temez[i].aporteMm / 1000) * areaEscurreM2 : NaN;
+          return {
+            ...r,
+            aporte: temez ? (unidadCaudal === "m3s" ? m3 / duracionPasoS(r.fecha, paso) : m3) : r.aporte,
+            extraccion: demandaConstante ? demandaConst : r.extraccion,
+          };
+        })
+      : null;
+  const datosBalance: DatosBalance | null =
+    serie && curva && errores.length === 0 && erroresSuelos.length === 0
+      ? {
           paso,
           serie,
           unidadCaudal,
@@ -456,8 +595,9 @@ export default function BalanceEmbalsePage() {
           volumenInicialHm3: vInicial,
           volumenMinimoHm3: vMin,
           volumenMaximoHm3: vMax,
-        })
+        }
       : null;
+  const resultado = datosBalance ? calcularBalance(datosBalance) : null;
 
   const n = resultado?.pasos.length ?? 0;
   const pasoDetalle = Math.min(Math.max(1, Math.round(aNumero(pasoDetalleTexto)) || 1), Math.max(1, n));
@@ -471,13 +611,16 @@ export default function BalanceEmbalsePage() {
   const pct = (x: number) => `${fmt(x * 100, 1)} %`;
   const sufCaudal = sufijoCaudal(unidadCaudal, paso);
 
-  const columnasSerie = [
+  const todasColumnasSerie = [
     { titulo: "Fecha", ejemplo: "2024-01-01", texto: true },
     { titulo: "Aporte", sufijo: sufCaudal },
     { titulo: "Precipitación", sufijo: "mm" },
     { titulo: "Evaporación tanque", sufijo: "mm" },
     { titulo: "Demanda", sufijo: sufCaudal },
+    { titulo: "ETP", sufijo: "mm" },
   ];
+  const indicesSerie = [0, ...(usaTemez ? [] : [1]), 2, 3, ...(demandaConstante ? [] : [4]), ...(usaTemez ? [5] : [])];
+  const columnasSerie = indicesSerie.map((i) => todasColumnasSerie[i]);
   const columnasCurva = [
     { titulo: "Cota", sufijo: "m" },
     { titulo: "Área", sufijo: esc.na },
@@ -747,13 +890,118 @@ export default function BalanceEmbalsePage() {
         )}
       </section>
 
+      <section className="space-y-4">
+        <p className="spec-label">Aporte de la cuenca y demanda</p>
+        <div className="grid gap-x-8 gap-y-4 lg:grid-cols-2">
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <CampoSeleccion
+                id="aporteFuente"
+                etiqueta="Aporte de la cuenca"
+                valor={usaTemez ? "Modelo de Témez" : "Serie cargada"}
+                opciones={paso === "mensual" ? ["Serie cargada", "Modelo de Témez"] : ["Serie cargada"]}
+                onChange={setAporteFuente}
+              />
+              <CampoSeleccion
+                id="demandaModo"
+                etiqueta="Demanda"
+                valor={demandaConstante ? "Constante" : "De la serie"}
+                opciones={["De la serie", "Constante"]}
+                onChange={setDemandaModo}
+              />
+              {demandaConstante && (
+                <CampoNumerico id="demandaConst" etiqueta="Demanda constante" sufijo={sufCaudal} valor={demandaConstTexto} onChange={setDemandaConst} />
+              )}
+              {usaTemez && (
+                <CampoNumerico id="areaCuencaTz" etiqueta="Área de la cuenca" sufijo="km²" valor={areaCuencaTexto} onChange={setAreaCuenca} />
+              )}
+            </div>
+            {paso === "diario" && aporteFuente === "Modelo de Témez" && (
+              <p className="text-xs text-muted-foreground">El modelo de Témez es mensual: con paso diario se usa el aporte de la serie.</p>
+            )}
+            {usaTemez && (
+              <>
+                <p className="text-xs text-muted-foreground">
+                  El aporte de cada mes sale de la precipitación y la ETP de la serie, sobre el área de la cuenca. Parámetros de partida
+                  para Uruguay: Genta et al. (2001).
+                </p>
+                <div className="grid grid-cols-3 gap-3">
+                  <CampoNumerico id="tzCad" etiqueta="CAD" valor={tzCad} onChange={setTzCad} />
+                  <CampoNumerico id="tzCpo" etiqueta="CPo" valor={tzCpo} onChange={setTzCpo} />
+                  <CampoNumerico id="tzImax" etiqueta="Imax" sufijo="mm" valor={tzImax} onChange={setTzImax} />
+                  <CampoNumerico id="tzAlfa" etiqueta="α" sufijo="1/día" valor={tzAlfa} onChange={setTzAlfa} />
+                  <CampoNumerico id="tzH0" etiqueta="Humedad inicial H₀" sufijo="mm" valor={tzH0} onChange={setTzH0} />
+                  <CampoNumerico id="tzV0" etiqueta="Almac. subt. V₀" sufijo="mm" valor={tzV0} onChange={setTzV0} />
+                </div>
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="w-60">
+                    <CampoSeleccion
+                      id="tzDescontar"
+                      etiqueta="Descontar el espejo del área que escurre"
+                      valor={tzDescontar === "No" ? "No" : "Sí"}
+                      opciones={["Sí", "No"]}
+                      onChange={setTzDescontar}
+                    />
+                  </div>
+                  {Number.isFinite(areaEscurreM2) && (
+                    <p className="pb-2 text-xs text-muted-foreground">Área que escurre: {fmt(areaEscurreM2 / 1e6, 4)} km²</p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className={botonArchivo}
+                  onClick={() => {
+                    setTzCad(String(PARAMETROS_TEMEZ_URUGUAY.cad).replace(".", ","));
+                    setTzCpo(String(PARAMETROS_TEMEZ_URUGUAY.cpo).replace(".", ","));
+                    setTzImax(String(PARAMETROS_TEMEZ_URUGUAY.imaxMm));
+                    setTzAlfa(String(PARAMETROS_TEMEZ_URUGUAY.alfaDia).replace(".", ","));
+                  }}
+                >
+                  Volver a los parámetros de Genta et al. (2001)
+                </button>
+              </>
+            )}
+          </div>
+          {usaTemez && (
+            <div className="space-y-3">
+              <p className="text-xs font-medium text-muted-foreground">Agua disponible del suelo, ponderada por unidad</p>
+              <TablaEditable id="tabla-suelos" columnas={COLUMNAS_SUELOS} filas={suelos} onChange={setSuelos} filaNueva={() => ["", "", ""]} />
+              {erroresSuelos.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  AD ponderado = Σ(Aᵢ·ADᵢ)/ΣAᵢ ={" "}
+                  <span className="font-mono tabular-nums text-foreground">
+                    {fmt(adPonderado, 2)}{" "}
+                    mm
+                  </span>
+                  ; Hmax = CAD · AD.
+                </p>
+              )}
+              <ListaErrores titulo="Errores en las unidades de suelo" errores={erroresSuelos} />
+              <div className="grid grid-cols-2 gap-3">
+                <CampoNumerico
+                  id="qMedioAnual"
+                  etiqueta="q medio anual regional"
+                  sufijo="L/s/km²"
+                  valor={qAnualTexto}
+                  onChange={setQAnual}
+                  advertencia="Para validar Témez; por cuatrimestre usa los q medios del caudal ambiental."
+                />
+                <CampoNumerico id="tzHasta" etiqueta="Validar con meses hasta el año" valor={anioHastaTexto} onChange={setAnioHasta} advertencia="Período de la regionalización. Vacío: todos." />
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+
       <section className="space-y-3">
         <div>
           <p className="spec-label">Serie {paso === "mensual" ? "mensual" : "diaria"} de entradas y demanda</p>
           <p className="mt-1 text-xs text-muted-foreground">
             Lluvia y evaporación de tanque como lámina en mm {paso === "mensual" ? "del mes" : "del día"}, aplicada sobre el
-            área del espejo. Columnas del archivo: fecha, aporte, precipitacion_mm, evaporacion_mm, demanda; la unidad de aporte
-            y demanda se lee del encabezado (p. ej. aporte_m3s o aporte_m3_mes) y se convierte sola.
+            área del espejo. Columnas del archivo: fecha, {usaTemez ? "" : "aporte, "}precipitacion_mm, evaporacion_mm
+            {demandaConstante ? "" : ", demanda"}
+            {usaTemez ? ", etp_mm" : ""}; la unidad de aporte y demanda se lee del encabezado (p. ej. aporte_m3s o aporte_m3_mes)
+            y se convierte sola. Si el archivo trae datos diarios y el paso es mensual, se agregan por mes.
           </p>
         </div>
         <div className="w-48">
@@ -767,8 +1015,9 @@ export default function BalanceEmbalsePage() {
         </div>
         <BarraArchivos
           id="serie"
-          especs={COLUMNAS_SERIE}
+          especs={especsSerieActual}
           onImportar={importarSerie}
+          puntuar={(celdas) => validarSerie(celdas, paso, undefined, requeridas).errores.length}
           plantilla={() => plantillaSerie(paso, unidadCaudal)}
           nombrePlantilla={`plantilla-serie-${paso === "mensual" ? "mensual" : "diaria"}`}
         />
@@ -779,7 +1028,8 @@ export default function BalanceEmbalsePage() {
           onChange={setFilasSerie}
           filasConError={filasDeErrores(validacionSerie.errores)}
           porPagina={paso === "mensual" ? 24 : 31}
-          filaNueva={(filas) => [siguienteFecha(filas, paso), "", "0", "0", "0"]}
+          filaNueva={(filas) => [siguienteFecha(filas, paso), "", "0", "0", "0", ""]}
+          indices={indicesSerie}
         />
         <ListaErrores titulo="Errores en la serie" errores={validacionSerie.errores} />
       </section>
@@ -840,6 +1090,20 @@ export default function BalanceEmbalsePage() {
                 },
               ]}
             />
+
+            {temez && (
+              <PanelTemez
+                pasos={temez}
+                areaEscurreM2={areaEscurreM2}
+                qRegional={
+                  qambTipo === "Por percentil" || Number.isFinite(aNumero(qAnualTexto))
+                    ? { anual: aNumero(qAnualTexto), cuatrimestres: [qMedio0, qMedio1, qMedio2].map(aNumero) }
+                    : null
+                }
+                anioHasta={anioHastaTexto.trim() === "" ? null : aNumero(anioHastaTexto)}
+                fechaCorta={(f) => fechaCorta(f, paso)}
+              />
+            )}
 
             <GraficoLineas
               titulo="Volumen almacenado al final de cada paso"
@@ -1001,6 +1265,7 @@ export default function BalanceEmbalsePage() {
                     vMin,
                     vMax,
                     reg: serie[detalle.indice],
+                    temez: temez ? { paso: temez[detalle.indice], areaEscurreM2, hmax: aNumero(tzCad) * adPonderado, cpo: aNumero(tzCpo), imax: aNumero(tzImax), alfa: aNumero(tzAlfa), previo: detalle.indice > 0 ? temez[detalle.indice - 1] : null, h0: aNumero(tzH0), v0: aNumero(tzV0) } : null,
                     unidadCaudal,
                     qambM3s: qambPorMesM3s[Number(detalle.fecha.slice(5, 7)) - 1],
                     minimoAporte: modoLibNombre !== "Qamb completo",
@@ -1012,6 +1277,18 @@ export default function BalanceEmbalsePage() {
                   })}
                 />
               </div>
+            )}
+            {datosBalance && (
+              <PanelSensibilidad
+                datos={datosBalance}
+                unidad={sufCaudal}
+                V={(x) => V(x)}
+                demandaActual={demandaConstante ? demandaConst : null}
+                onUsarDemanda={(d) => {
+                  setDemandaModo("Constante");
+                  setDemandaConst(textoNumero(d, d >= 100 ? 0 : 4));
+                }}
+              />
             )}
           </>
         )}
@@ -1034,6 +1311,17 @@ function filasDetalle(o: {
   areaMedio: boolean;
   paso: PasoTiempo;
   esc: Escala;
+  temez: {
+    paso: PasoTemez;
+    previo: PasoTemez | null;
+    areaEscurreM2: number;
+    hmax: number;
+    cpo: number;
+    imax: number;
+    alfa: number;
+    h0: number;
+    v0: number;
+  } | null;
 }) {
   const { p, curva, esc } = o;
   const u = esc.nv;
@@ -1052,7 +1340,45 @@ function filasDetalle(o: {
   const ap = volCaudal(o.reg.aporte);
   const de = volCaudal(o.reg.extraccion);
 
+  const tz = o.temez;
+  const filasTemez = tz
+    ? (() => {
+        const t = tz.paso;
+        const hAnt = tz.previo ? tz.previo.humedad : tz.h0;
+        const vAnt = tz.previo ? tz.previo.almacenamiento : tz.v0;
+        const f2 = (x: number) => fmt(x, 2);
+        return [
+          { etiqueta: "Témez · Hmax", formula: "CAD · AD", valor: `${f2(tz.hmax)} mm` },
+          { etiqueta: "Témez · δ", formula: "Hmax − H(i−1) + ETP", sustitucion: `${f2(tz.hmax)} − ${f2(hAnt)} + ${f2(t.etpMm)}`, valor: `${f2(t.delta)} mm` },
+          { etiqueta: "Témez · P0", formula: "CPo · (Hmax − H(i−1))", sustitucion: `${fmt(tz.cpo, 3)} · (${f2(tz.hmax)} − ${f2(hAnt)})`, valor: `${f2(t.p0)} mm` },
+          {
+            etiqueta: "Témez · T",
+            formula: "P ≤ P0 ? 0 : (P − P0)² / (P + δ − 2·P0)",
+            sustitucion: t.precipitacionMm <= t.p0 ? `${f2(t.precipitacionMm)} ≤ ${f2(t.p0)}` : `(${f2(t.precipitacionMm)} − ${f2(t.p0)})² / (${f2(t.precipitacionMm)} + ${f2(t.delta)} − 2·${f2(t.p0)})`,
+            valor: `${f2(t.excedente)} mm`,
+          },
+          { etiqueta: "Témez · H", formula: "máx(0; H(i−1) + P − T − ETP)", sustitucion: `máx(0; ${f2(hAnt)} + ${f2(t.precipitacionMm)} − ${f2(t.excedente)} − ${f2(t.etpMm)})`, valor: `${f2(t.humedad)} mm` },
+          { etiqueta: "Témez · I", formula: "Imax · T / (T + Imax)", sustitucion: `${f2(tz.imax)} · ${f2(t.excedente)} / (${f2(t.excedente)} + ${f2(tz.imax)})`, valor: `${f2(t.infiltracion)} mm` },
+          { etiqueta: "Témez · Asup", formula: "T − I", sustitucion: `${f2(t.excedente)} − ${f2(t.infiltracion)}`, valor: `${f2(t.escorrentiaSuperficial)} mm` },
+          {
+            etiqueta: "Témez · V",
+            formula: "V(i−1)·e^(−α·d) + I·e^(−α·d/2)",
+            sustitucion: `${f2(vAnt)}·e^(−${fmt(tz.alfa, 4)}·${t.dias}) + ${f2(t.infiltracion)}·e^(−${fmt(tz.alfa, 4)}·${t.dias}/2)`,
+            valor: `${f2(t.almacenamiento)} mm`,
+          },
+          { etiqueta: "Témez · Asub", formula: "V(i−1) − V + I", sustitucion: `${f2(vAnt)} − ${f2(t.almacenamiento)} + ${f2(t.infiltracion)}`, valor: `${f2(t.escorrentiaSubterranea)} mm` },
+          {
+            etiqueta: "Témez · aporte",
+            formula: "(Asup + Asub)/1000 · área que escurre",
+            sustitucion: `(${f2(t.escorrentiaSuperficial)} + ${f2(t.escorrentiaSubterranea)})/1000 · ${fmt(tz.areaEscurreM2, 0)} m²`,
+            valor: `${fmt((t.aporteMm / 1000) * tz.areaEscurreM2, 0)} m³`,
+          },
+        ];
+      })()
+    : [];
+
   return [
+    ...filasTemez,
     {
       etiqueta: "Δt",
       formula: o.paso === "mensual" ? "días del mes · 86 400 s" : "1 día · 86 400 s",

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  agregarDiarioAMensual,
+  balanceConDemanda,
+  demandaFirme,
+  sensibilidadDemanda,
   calcularBalance,
   convertirCaudalSerie,
   FACTORES_PERCENTIL_S_SE,
@@ -219,5 +223,43 @@ describe("validarCurva", () => {
   it("rechaza volúmenes no crecientes", () => {
     const { errores } = validarCurva([["1", "1", "5"], ["2", "2", "4"]]);
     expect(errores[0]).toMatch(/volumen tiene que ser mayor/);
+  });
+});
+
+describe("sensibilidad y demanda firme", () => {
+  const serie = Array.from({ length: 24 }, (_, i) => ({
+    fecha: `${2020 + Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, "0")}-01`,
+    aporte: i % 12 < 6 ? 3 : 0.5,
+    precipitacionMm: 0,
+    evaporacionMm: 0,
+    extraccion: 0,
+  }));
+  const datos = { ...base, paso: "mensual" as const, serie };
+
+  it("la garantía no sube al subir la demanda", () => {
+    const esc = sensibilidadDemanda(datos, [0.5, 1, 1.5, 2, 3]);
+    for (let i = 1; i < esc.length; i++) {
+      expect(esc[i].garantiaTemporal).toBeLessThanOrEqual(esc[i - 1].garantiaTemporal + 1e-12);
+      expect(esc[i].garantiaVolumetrica).toBeLessThanOrEqual(esc[i - 1].garantiaVolumetrica + 1e-12);
+    }
+    expect(esc[0].garantiaTemporal).toBe(1);
+  });
+
+  it("la demanda firme cumple la garantía y un poco más no", () => {
+    const d = demandaFirme(datos, 0.95, "temporal");
+    expect(balanceConDemanda(datos, d).garantiaTemporal).toBeGreaterThanOrEqual(0.95);
+    expect(balanceConDemanda(datos, d * 1.01).garantiaTemporal).toBeLessThan(0.95);
+  });
+});
+
+describe("agregarDiarioAMensual", () => {
+  it("suma la lluvia, completa E y ETP con el promedio y promedia caudales en m³/s", () => {
+    const filas = [
+      ["2024-02-01", "1", "10", "4", "0,5", "5"],
+      ["2024-02-02", "3", "", "6", "0,5", ""],
+    ];
+    const r = agregarDiarioAMensual(filas, "m3s");
+    expect(r.filas).toEqual([["2024-02-01", "2", "10", "145", "0,5", "145"]]);
+    expect(r.faltantes[0]).toEqual({ mes: "2024-02", p: 28, e: 27, etp: 28 });
   });
 });

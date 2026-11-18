@@ -155,13 +155,27 @@ export interface HojaLeida {
  */
 export function importarLibro(
   hojas: readonly HojaLeida[],
-  especs: readonly EspecColumna[]
+  especs: readonly EspecColumna[],
+  /** Cantidad de errores de datos de una hoja candidata: se elige la que tenga menos. */
+  puntuar?: (celdas: string[][]) => number
 ): ResultadoImportacion & { hoja: string } {
   let mejor: (ResultadoImportacion & { hoja: string }) | null = null;
+  let candidata: (ResultadoImportacion & { hoja: string; puntos: number }) | null = null;
   for (const h of hojas) {
     const r = { ...importarTabla(h.filas, especs), hoja: h.nombre };
-    if (r.errores.length === 0) return r;
+    if (r.errores.length === 0) {
+      if (!puntuar) return r;
+      const puntos = puntuar(r.celdas);
+      if (!candidata || puntos < candidata.puntos) candidata = { ...r, puntos };
+      if (puntos === 0) break;
+      continue;
+    }
     if (!mejor || r.errores.length < mejor.errores.length) mejor = r;
+  }
+  if (candidata) {
+    const { puntos: _puntos, ...r } = candidata;
+    void _puntos;
+    return r;
   }
   if (!mejor) return { celdas: [], filasArchivo: [], encabezados: {}, errores: ["El archivo está vacío."], hoja: "" };
   if (hojas.length > 1) {

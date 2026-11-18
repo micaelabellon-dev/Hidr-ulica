@@ -23,6 +23,8 @@ interface TablaEditableProps {
   porPagina?: number;
   /** Fila nueva que se agrega al final; por defecto, vacía. */
   filaNueva?: (filas: string[][]) => string[];
+  /** Índice en la fila de cada columna mostrada, cuando se muestran sólo algunas. */
+  indices?: readonly number[];
 }
 
 const celdaBase =
@@ -41,7 +43,9 @@ export function TablaEditable({
   filasConError,
   porPagina = 25,
   filaNueva,
+  indices,
 }: TablaEditableProps) {
+  const ix = (c: number) => indices?.[c] ?? c;
   const [pagina, setPagina] = useState(0);
   const paginas = Math.max(1, Math.ceil(filas.length / porPagina));
   const paginaActual = Math.min(pagina, paginas - 1);
@@ -50,7 +54,7 @@ export function TablaEditable({
 
   const cambiarCelda = (f: number, c: number, valor: string) => {
     const nuevas = filas.map((fila) => [...fila]);
-    nuevas[f][c] = valor;
+    nuevas[f][ix(c)] = valor;
     onChange(nuevas);
   };
 
@@ -66,9 +70,9 @@ export function TablaEditable({
     const nuevas = filas.map((fila) => [...fila]);
     bloque.forEach((valores, i) => {
       const fi = f + i;
-      while (nuevas.length <= fi) nuevas.push(columnas.map(() => ""));
+      while (nuevas.length <= fi) nuevas.push(filaNueva ? filaNueva(nuevas) : columnas.map(() => ""));
       valores.forEach((v, j) => {
-        if (c + j < columnas.length) nuevas[fi][c + j] = v.trim();
+        if (c + j < columnas.length) nuevas[fi][ix(c + j)] = v.trim();
       });
     });
     onChange(nuevas);
@@ -124,7 +128,7 @@ export function TablaEditable({
                         inputMode={col.texto ? "text" : "decimal"}
                         aria-label={`${col.titulo}, fila ${f + 1}`}
                         placeholder={col.ejemplo}
-                        value={fila[c] ?? ""}
+                        value={fila[ix(c)] ?? ""}
                         onChange={(e) => cambiarCelda(f, c, e.target.value)}
                         onPaste={(e) => pegar(f, c, e)}
                         className={celdaBase}

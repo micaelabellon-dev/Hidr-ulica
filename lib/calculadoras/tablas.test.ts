@@ -28,7 +28,7 @@ describe("importarTabla", () => {
     const csv = "Fecha;Extracción (m³/s);Aporte (m3/s);Evaporación (mm);Precipitación (mm)\n2024-01-01;1,5;3;120;80\n";
     const r = importarTabla(parsearCsv(csv), COLUMNAS_SERIE);
     expect(r.errores).toEqual([]);
-    expect(r.celdas).toEqual([["2024-01-01", "3", "80", "120", "1,5"]]);
+    expect(r.celdas).toEqual([["2024-01-01", "3", "80", "120", "1,5", ""]]);
     expect(r.encabezados.aporte).toBe("aporte_m3_s");
     expect(r.filasArchivo).toEqual([2]);
   });
@@ -67,7 +67,7 @@ describe("importarLibro", () => {
     const r = importarLibro(hojas, COLUMNAS_SERIE);
     expect(r.errores).toEqual([]);
     expect(r.hoja).toBe("Balance");
-    expect(r.celdas).toEqual([["1985-01-01", "286313", "65,5", "284,91", "20000"]]);
+    expect(r.celdas).toEqual([["1985-01-01", "286313", "65,5", "284,91", "20000", ""]]);
     expect(r.encabezados.aporte).toBe("aporte_cuenca_temez_m3");
     expect(r.filasArchivo).toEqual([5]);
   });
