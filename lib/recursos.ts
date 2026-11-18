@@ -38,6 +38,16 @@ export const GRUPOS_RECURSOS: GrupoRecursos[] = [
         descripcion: "Descarga de ortoimágenes y modelos digitales de elevación y de superficie.",
       },
       {
+        nombre: "Visualizador del OAN (Ministerio de Ambiente)",
+        url: "https://www.ambiente.gub.uy/visualizador/",
+        descripcion: "Visualizador de mapas del Observatorio Ambiental Nacional: capas ambientales, estaciones de monitoreo y carga de KML.",
+      },
+      {
+        nombre: "Visualizadores de DINAGUA",
+        url: "https://www.ambiente.gub.uy/informacion_hidrica/",
+        descripcion: "Visualizadores geográficos de recursos hídricos: cuencas, estaciones hidrométricas, aprovechamientos y riesgo de inundación.",
+      },
+      {
         nombre: "MonteviMap",
         url: "https://sig.montevideo.gub.uy/",
         descripcion: "Sistema de información geográfica de la Intendencia de Montevideo: padrones, saneamiento, ordenamiento territorial.",
@@ -95,13 +105,50 @@ export const GRUPOS_RECURSOS: GrupoRecursos[] = [
     ],
   },
   {
+    titulo: "DINAGUA y Observatorio Ambiental",
+    descripcion: "Información hídrica oficial, guías y trámites del Ministerio de Ambiente.",
+    recursos: [
+      {
+        nombre: "Observatorio Ambiental Nacional (OAN)",
+        url: "https://www.ambiente.gub.uy/oan/",
+        descripcion: "Indicadores, datos abiertos, geoportal de imágenes satelitales y visualizadores ambientales.",
+      },
+      {
+        nombre: "Geoportal del OAN",
+        url: "https://www.ambiente.gub.uy/oan/geoportal/",
+        descripcion: "Catálogo de imágenes satelitales y productos derivados (floraciones algales, índices).",
+      },
+      {
+        nombre: "Información hidrológica (DINAGUA)",
+        url: "https://www.gub.uy/ministerio-ambiente/politicas-y-gestion/encontrar-informacion-hidrologica-uruguay",
+        descripcion: "Dónde encontrar datos de caudales, niveles y estaciones hidrológicas de Uruguay.",
+      },
+      {
+        nombre: "Atlas Nacional de Inundaciones y Drenaje Pluvial Urbano",
+        url: "https://www.gub.uy/ministerio-ambiente/politicas-y-gestion/atlas-nacional-inundaciones-drenaje-pluvial-urbano-version-diciembre-2025",
+        descripcion: "Riesgo de inundación por localidad y situación del drenaje pluvial urbano.",
+      },
+      {
+        nombre: "Guía metodológica de caudales ambientales",
+        url: "https://www.gub.uy/ministerio-ambiente/sites/ministerio-ambiente/files/2026-09/Gu%C3%ADa%20metodol%C3%B3gica%20de%20caudales%20ambientales_%2020260911_Publicaci%C3%B3n%20web.pdf",
+        descripcion: "Guía de DINAGUA para fijar el caudal ambiental (PDF), útil para el balance de embalses.",
+        etiqueta: "PDF",
+      },
+      {
+        nombre: "Derecho de uso de aguas públicas",
+        url: "https://www.gub.uy/ministerio-ambiente/politicas-y-gestion/proceso-solicitud-derecho-uso-aguas-publicas",
+        descripcion: "Proceso de solicitud ante DINAGUA para tomas, pozos y embalses.",
+      },
+    ],
+  },
+  {
     titulo: "Organismos y datos",
     descripcion: "Donde buscar series, trámites y criterios oficiales.",
     recursos: [
       {
         nombre: "Ministerio de Ambiente",
         url: "https://www.gub.uy/ministerio-ambiente/",
-        descripcion: "DINACEA y DINAGUA: autorizaciones ambientales, de vertido, de embalses y de extracción.",
+        descripcion: "Portal del Ministerio: DINACEA, DINAGUA, autorizaciones ambientales y de vertido.",
       },
       {
         nombre: "Evaluación de impacto ambiental (Ambiente)",
