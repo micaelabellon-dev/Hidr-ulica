@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Calculator, LayoutGrid, ShieldCheck } from "lucide-react";
+import { Calculator, House, LayoutGrid, ShieldCheck } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { NavCalculadoras } from "@/components/calculadoras/comun/NavCalculadoras";
 
@@ -14,7 +14,7 @@ interface Destino {
 }
 
 const DESTINOS: Destino[] = [
-  { nombre: "Resumen", ruta: "/", Icono: LayoutGrid },
+  { nombre: "Inicio", ruta: "/", Icono: House },
   { nombre: "Calculadoras", ruta: "/calculadoras", Icono: Calculator, prefijo: true },
 ];
 
@@ -38,7 +38,7 @@ export function BarraLateral() {
         <nav className="flex flex-col gap-5">
           <div>
             <p className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-sidebar-foreground/45">
-              Espacio de trabajo
+              Menú
             </p>
             <ul className="space-y-0.5">
               {DESTINOS.map((destino) => {
