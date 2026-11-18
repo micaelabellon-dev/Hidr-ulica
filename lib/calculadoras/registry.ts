@@ -15,14 +15,20 @@ export type IdCalculadora =
   | "amoniaco-libre"
   | "laguna-facultativa"
   | "humedal-vertical"
-  | "desinfeccion-cloro";
+  | "desinfeccion-cloro"
+  | "mezcla-rapida"
+  | "floculacion"
+  | "sedimentador"
+  | "daf"
+  | "dispersion-chimenea"
+  | "cumplimiento-aire";
 
 export interface CalculadoraMeta {
   id: IdCalculadora;
   nombre: string;
   descripcion: string;
   ruta: string;
-  categoria: "Flujo a presión" | "Estaciones de bombeo" | "Flujo a superficie libre" | "Hidrología" | "Calidad de agua" | "Tratamiento de efluentes";
+  categoria: "Flujo a presión" | "Estaciones de bombeo" | "Flujo a superficie libre" | "Hidrología" | "Calidad de agua" | "Tratamiento de efluentes" | "Procesos de tratamiento" | "Calidad de aire";
   /** Métodos o fórmulas entre los que se puede elegir, para que la tarjeta los muestre como "norma". */
   metodosDisponibles: readonly string[];
 }
@@ -126,6 +132,54 @@ export const registroCalculadoras: CalculadoraMeta[] = [
     ruta: "/calculadoras/desinfeccion-cloro",
     categoria: "Tratamiento de efluentes",
     metodosDisponibles: ["Chick-Watson"],
+  },
+  {
+    id: "mezcla-rapida",
+    nombre: "Mezcla rápida (coagulación)",
+    descripcion: "Gradiente y tiempo de mezcla con placa orificio o canaleta Parshall con resalto hidráulico, y comparación de medidas de Parshall.",
+    ruta: "/calculadoras/mezcla-rapida",
+    categoria: "Procesos de tratamiento",
+    metodosDisponibles: ["Placa orificio", "Canaleta Parshall"],
+  },
+  {
+    id: "floculacion",
+    nombre: "Floculación",
+    descripcion: "Ajuste G·Tⁿ = K de ensayos de jarras y diseño de floculadores mecánicos de paletas o hidráulicos de tabiques con flujo horizontal o vertical.",
+    ruta: "/calculadoras/floculacion",
+    categoria: "Procesos de tratamiento",
+    metodosDisponibles: ["Paletas (mecánico)", "Tabiques flujo horizontal", "Tabiques flujo vertical"],
+  },
+  {
+    id: "sedimentador",
+    nombre: "Sedimentador",
+    descripcion: "Decantador convencional (carga superficial, retención, vertedero, remoción primaria) o laminar de placas (Yao), y velocidad de Stokes.",
+    ruta: "/calculadoras/sedimentador",
+    categoria: "Procesos de tratamiento",
+    metodosDisponibles: ["Convencional", "Laminar (placas)"],
+  },
+  {
+    id: "daf",
+    nombre: "Flotación por aire disuelto (DAF)",
+    descripcion: "Recirculación presurizada por la relación aire/sólidos, área por carga hidráulica, carga de sólidos y aire necesario.",
+    ruta: "/calculadoras/daf",
+    categoria: "Procesos de tratamiento",
+    metodosDisponibles: ["Relación A/S"],
+  },
+  {
+    id: "dispersion-chimenea",
+    nombre: "Dispersión de contaminantes (chimenea)",
+    descripcion: "Modelo gaussiano de pluma: viento con la altura, sobreelevación de Holland, σ de Briggs o leídos a mano, concentración en un receptor y máximo a nivel del suelo; emisión por factor.",
+    ruta: "/calculadoras/dispersion-chimenea",
+    categoria: "Calidad de aire",
+    metodosDisponibles: ["Gaussiano", "Holland", "Briggs"],
+  },
+  {
+    id: "cumplimiento-aire",
+    nombre: "Cumplimiento de calidad de aire",
+    descripcion: "Promedios diarios y del período a partir de mediciones horarias, contra los estándares diario y anual.",
+    ruta: "/calculadoras/cumplimiento-aire",
+    categoria: "Calidad de aire",
+    metodosDisponibles: ["Promedios"],
   },
 ];
 
