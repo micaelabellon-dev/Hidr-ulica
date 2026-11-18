@@ -168,6 +168,15 @@
   --serie-1: #1769aa;
   --serie-2: #d9822b;
   --serie-3: #8a5cc2;
+
+  /* Materiales de tratamiento, para los croquis */
+  --mat-lodo: #a88b63;
+  --mat-arena: #e8dcbc;
+  --mat-grava: #c4bdaf;
+  --mat-grava-gruesa: #a39c8e;
+  --mat-planta: #4f9a5c;
+  --mat-terreno: #d6cdb8;
+  --mat-cloro: #d9e8a6;
 }
 
 .dark {
@@ -183,6 +192,14 @@
   --serie-1: #3c94de;
   --serie-2: #c8732a;
   --serie-3: #9575d8;
+
+  --mat-lodo: #6e5a3e;
+  --mat-arena: #5c533f;
+  --mat-grava: #4a4740;
+  --mat-grava-gruesa: #3b3832;
+  --mat-planta: #4c9a5a;
+  --mat-terreno: #3a362d;
+  --mat-cloro: #4b5a2a;
 }
 
 @layer base {

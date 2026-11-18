@@ -10,6 +10,7 @@ import { CampoNumerico } from "@/components/calculadoras/comun/CampoNumerico";
 import { CampoSeleccion } from "@/components/calculadoras/comun/CampoSeleccion";
 import { PanelFormulas } from "@/components/calculadoras/comun/PanelFormulas";
 import { PanelMetricas } from "@/components/calculadoras/comun/PanelMetricas";
+import { DiagramaHumedal } from "@/components/calculadoras/croquis/DiagramasTratamiento";
 import { filasDeErrores, TablaEditable } from "@/components/calculadoras/comun/TablaEditable";
 import { calidadANumeros, CamposCalidad, fmtParametro, leerCalidad, TablaCalidad, type CalidadTexto } from "@/components/calculadoras/tratamiento/Calidad";
 import { calcularHumedal, type CapaFiltrante } from "@/lib/calc/tratamiento/humedal";
@@ -214,6 +215,7 @@ export default function HumedalVerticalPage() {
                   { etiqueta: "Retención en el medio", valor: `${fmt(r.tiempoRetencionD, 2)} d` },
                 ]}
               />
+              <DiagramaHumedal capas={datos.capas} largoM={r.largoM} anchoM={r.anchoM} trenes={datos.trenes} taludZ={datos.taludZ} />
               <ListaAvisos avisos={avisos} />
               <TablaCalidad afluente={datos.afluente} salidas={[{ titulo: "Efluente", calidad: r.efluente }]} />
 

@@ -7,6 +7,7 @@ import { CampoNumerico } from "@/components/calculadoras/comun/CampoNumerico";
 import { CampoSeleccion } from "@/components/calculadoras/comun/CampoSeleccion";
 import { PanelFormulas } from "@/components/calculadoras/comun/PanelFormulas";
 import { PanelMetricas } from "@/components/calculadoras/comun/PanelMetricas";
+import { DiagramaCloro } from "@/components/calculadoras/croquis/DiagramasTratamiento";
 import { fmtParametro } from "@/components/calculadoras/tratamiento/Calidad";
 import { calcularCloracion } from "@/lib/calc/tratamiento/cloracion";
 import { aNumero, fmt } from "@/lib/calculadoras/formato";
@@ -139,6 +140,14 @@ export default function DesinfeccionCloroPage() {
                   { etiqueta: "Hipoclorito", valor: `${fmt(r.volumenProductoLd, 2)} L/d`, nota: `${fmt(r.caudalDosificadoraLh, 3)} L/h de dosificadora` },
                   { etiqueta: "Volumen de contacto", valor: `${fmt(r.volumenContactoM3, 2)} m³`, nota: `cámara H = ${fmt(r.alturaCamaraM, 2)} m · tubería L = ${fmt(r.largoTuberiaM, 0)} m` },
                 ]}
+              />
+              <DiagramaCloro
+                largoM={datos.camara.largoM}
+                anchoM={datos.camara.anchoM}
+                alturaM={r.alturaCamaraM}
+                dosisMgL={r.dosisTotalMgL}
+                litrosDia={r.volumenProductoLd}
+                tiempoMin={datos.tiempoMin}
               />
               <ListaAvisos avisos={avisos} />
               <PanelFormulas

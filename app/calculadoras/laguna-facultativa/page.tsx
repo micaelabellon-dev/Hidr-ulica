@@ -8,6 +8,7 @@ import { botonArchivo, ListaAvisos, ListaErrores } from "@/components/calculador
 import { CampoNumerico } from "@/components/calculadoras/comun/CampoNumerico";
 import { PanelFormulas } from "@/components/calculadoras/comun/PanelFormulas";
 import { PanelMetricas } from "@/components/calculadoras/comun/PanelMetricas";
+import { DiagramaLaguna } from "@/components/calculadoras/croquis/DiagramasTratamiento";
 import { calidadANumeros, calidadATexto, CamposCalidad, fmtParametro, leerCalidad, TablaCalidad, type CalidadTexto } from "@/components/calculadoras/tratamiento/Calidad";
 import { calcularLaguna, cargaSuperficialAdmisible } from "@/lib/calc/tratamiento/laguna-facultativa";
 import { aNumero, fmt } from "@/lib/calculadoras/formato";
@@ -139,6 +140,15 @@ export default function LagunaFacultativaPage() {
                   { etiqueta: "DBO de salida", valor: `${fmt(r.limpia.efluente.dbo, 1)} mg/L`, nota: `con lodo ${fmt(r.sucia.efluente.dbo, 1)}`, destacada: true },
                   { etiqueta: "Coliformes de salida", valor: fmtParametro("cf", r.limpia.efluente.cf), nota: "UFC/100 mL" },
                 ]}
+              />
+              <DiagramaLaguna
+                largoM={r.largoM}
+                anchoM={r.anchoM}
+                largoFondoM={r.limpia.largoFondoM}
+                anchoFondoM={r.limpia.anchoFondoM}
+                profundidadM={datos.profundidadM}
+                alturaLodoM={datos.alturaLodoM}
+                taludZ={datos.taludZ}
               />
               <ListaAvisos avisos={avisos} />
 
