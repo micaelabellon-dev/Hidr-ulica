@@ -20,7 +20,7 @@ export default function PaginaCalculadoras() {
         <h1 className="text-3xl font-semibold tracking-tight">Calculadoras</h1>
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
           Agrupadas por tema: flujo a presión, dentro de una tubería; a superficie libre,
-          dentro de un canal; hidrología: operación de embalses y lluvias extremas; calidad de agua y tratamiento de efluentes.
+          dentro de un canal; hidrología: operación de embalses y lluvias extremas; calidad de agua, tratamiento de efluentes, procesos unitarios y calidad de aire.
         </p>
       </div>
 

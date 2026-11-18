@@ -132,6 +132,19 @@ export default function AlcancePage() {
             Chick-Watson con constantes que dependen mucho del efluente: la dosis final hay que
             ajustarla en planta midiendo el residual.
           </p>
+          <p>
+            <strong className="text-foreground">Procesos de tratamiento.</strong> Mezcla rápida,
+            floculación, sedimentación y DAF con expresiones de diseño de bibliografía (Arboleda,
+            CEPIS, Metcalf & Eddy, Yao). Los parámetros por defecto son valores de partida: el G·Tⁿ = K
+            sale de ensayos de jarras y la relación aire/sólidos del DAF, de ensayos de flotación.
+          </p>
+          <p>
+            <strong className="text-foreground">Calidad de aire.</strong> Modelo gaussiano de pluma en
+            estado estacionario, terreno plano y viento constante, con σ de Briggs o leídos de las
+            curvas de Pasquill-Gifford. Da concentraciones de corto plazo (≈ 10 min a 1 h): para
+            comparar con estándares diarios o anuales hay que promediar escenarios horarios. El
+            cumplimiento usa el promedio del período cargado como estimador del anual.
+          </p>
         </div>
       </section>
 
