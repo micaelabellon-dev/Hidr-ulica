@@ -32,7 +32,7 @@ export function HeroResumen() {
           </h1>
 
           <p className="mt-4 text-sm leading-relaxed text-white/70">
-            Pérdida de carga, bombeo desde pozos, canales con Manning y balance de embalses,
+            Pérdida de carga, golpe de ariete, estaciones de bombeo, canales con Manning y balance de embalses,
             con la sustitución numérica a la vista para poder rehacerla a mano.
           </p>
 

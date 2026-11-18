@@ -32,7 +32,7 @@ const logo = Fredoka({
 });
 
 const descripcion =
-  "Calculadoras de hidráulica: pérdida de carga en tuberías, bombeo desde pozos con elección de bomba, tirante normal en canales con Manning y balance hídrico de embalses.";
+  "Calculadoras de hidráulica: pérdida de carga en tuberías, golpe de ariete, estaciones de bombeo (pozo, bomba y potencia), tirante normal en canales con Manning y balance hídrico de embalses.";
 
 export const metadata: Metadata = {
   title: {

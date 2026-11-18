@@ -4,14 +4,20 @@
  * agregar la próxima no obligue a tocar la navegación a mano.
  */
 
-export type IdCalculadora = "perdida-carga" | "bombeo-pozo" | "canales-manning" | "balance-embalse";
+export type IdCalculadora =
+  | "perdida-carga"
+  | "golpe-ariete"
+  | "bombeo-pozo"
+  | "pozo-humedo"
+  | "canales-manning"
+  | "balance-embalse";
 
 export interface CalculadoraMeta {
   id: IdCalculadora;
   nombre: string;
   descripcion: string;
   ruta: string;
-  categoria: "Flujo a presión" | "Flujo a superficie libre" | "Hidrología y almacenamiento";
+  categoria: "Flujo a presión" | "Estaciones de bombeo" | "Flujo a superficie libre" | "Hidrología y almacenamiento";
   /** Métodos o fórmulas entre los que se puede elegir, para que la tarjeta los muestre como "norma". */
   metodosDisponibles: readonly string[];
 }
@@ -27,13 +33,31 @@ export const registroCalculadoras: CalculadoraMeta[] = [
     metodosDisponibles: ["Darcy-Weisbach", "Hazen-Williams"],
   },
   {
-    id: "bombeo-pozo",
-    nombre: "Bombeo desde pozo",
+    id: "golpe-ariete",
+    nombre: "Golpe de ariete",
     descripcion:
-      "Altura manométrica en nivel mínimo y máximo, curva del sistema y punto de operación con la curva de la bomba, rendimiento, potencia y verificación de NPSH o sumergencia.",
-    ruta: "/calculadoras/bombeo-pozo",
+      "Celeridad, fase y tiempo de parada (Mendiluce), sobrepresión de Joukowsky o Michaud y presiones extremas en una impulsión, contra la presión nominal de la tubería.",
+    ruta: "/calculadoras/golpe-ariete",
     categoria: "Flujo a presión",
-    metodosDisponibles: ["Darcy-Weisbach", "Hazen-Williams"],
+    metodosDisponibles: ["Allievi", "Michaud", "Mendiluce"],
+  },
+  {
+    id: "bombeo-pozo",
+    nombre: "Bombeo: altura, bomba y potencia",
+    descripcion:
+      "Altura manométrica por tramos con accesorios en nivel mínimo, medio y máximo, curva del sistema, punto de operación con una o varias bombas, potencia del motor y verificación de NPSH o sumergencia.",
+    ruta: "/calculadoras/bombeo-pozo",
+    categoria: "Estaciones de bombeo",
+    metodosDisponibles: ["Hazen-Williams", "Darcy-Weisbach"],
+  },
+  {
+    id: "pozo-humedo",
+    nombre: "Pozo de bombeo (cámara húmeda)",
+    descripcion:
+      "Volumen útil por arranques por hora, alturas y cotas de niveles y fondo, cantidad de aros y tiempo de detención de una cámara de bombeo.",
+    ruta: "/calculadoras/pozo-humedo",
+    categoria: "Estaciones de bombeo",
+    metodosDisponibles: ["Arranques por hora"],
   },
   {
     id: "canales-manning",

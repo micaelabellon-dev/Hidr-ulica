@@ -108,3 +108,18 @@ export function useTabla(nombre: string, inicial: string[][]): [string[][], (fil
   const guardar = useCallback((nuevas: string[][]) => setJson(JSON.stringify(nuevas)), [setJson]);
   return [filas, guardar];
 }
+
+/**
+ * Escribe campos de OTRA calculadora (por ruta), para pasarle datos: p. ej.
+ * llevar los niveles del pozo húmedo a la calculadora de bombeo.
+ */
+export function escribirCampos(ruta: string, valores: Record<string, string>) {
+  try {
+    for (const [nombre, valor] of Object.entries(valores)) {
+      window.localStorage.setItem(claveDe(ruta, nombre), valor);
+    }
+  } catch {
+    // Sin almacenamiento no hay forma de pasar los datos.
+  }
+  window.dispatchEvent(new Event(EVENTO_CAMBIO));
+}

@@ -68,14 +68,27 @@ export default function AlcancePage() {
             abajo: no corresponde a un resalto, una curva ni una transición de sección.
           </p>
           <p>
-            <strong className="text-foreground">Bombeo desde pozo.</strong> Mismas hipótesis que la
-            pérdida de carga para la impulsión y la succión. La curva de la bomba es un ajuste
-            polinómico de los puntos de catálogo que se cargan y no se extrapola fuera de ellos. El
-            punto de operación se busca con los niveles mínimo y máximo del pozo como valores fijos:
-            no se modela el descenso del nivel por el propio bombeo, que hay que incluir en el
-            nivel mínimo. El NPSH disponible usa la atmósfera estándar según la altitud y la
-            presión de vapor del agua según la temperatura; el margen sobre el NPSHr lo fija quien
-            calcula. La sumergencia mínima de una bomba sumergible es la del fabricante.
+            <strong className="text-foreground">Bombeo: altura, bomba y potencia.</strong> Mismas
+            hipótesis que la pérdida de carga, tramo por tramo; las pérdidas fijas (caudalímetro,
+            filtro) se cargan con el caudal de diseño y se escalan con el cuadrado del caudal. Con
+            varias bombas en paralelo se suponen iguales. La curva de la bomba es un ajuste
+            polinómico de los puntos de catálogo y no se extrapola. Los niveles del pozo son valores
+            fijos: en un pozo de agua subterránea el mínimo tiene que incluir el descenso por el
+            propio bombeo. El NPSH disponible usa la atmósfera estándar según la altitud y la presión
+            de vapor según la temperatura.
+          </p>
+          <p>
+            <strong className="text-foreground">Pozo de bombeo (cámara húmeda).</strong> Volumen útil
+            por el criterio del ciclo más corto (caudal de entrada igual a la mitad del de bombeo),
+            sin contar el volumen de la tubería de llegada. El tiempo de detención se calcula con el
+            caudal mínimo y el volumen útil.
+          </p>
+          <p>
+            <strong className="text-foreground">Golpe de ariete.</strong> Celeridad por la fórmula de
+            Allievi, tiempo de parada de la bomba por Mendiluce y sobrepresión de Michaud (cierre
+            lento) o de Joukowsky (cierre rápido). Es una verificación de primer orden: no
+            reemplaza un cálculo por el método de las características cuando hay puntos altos,
+            separación de columna o protecciones (calderines, volantes, válvulas).
           </p>
           <p>
             <strong className="text-foreground">Balance hídrico de embalse.</strong> Continuidad
